@@ -1,0 +1,985 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for fMRI analysis on AWS SageMaker with necessary roles and S3 bucket'
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: 'fmri-analysis-domain'
+    Description: 'Name for the SageMaker domain'
+    
+  UserProfileName:
+    Type: String
+    Default: 'fmri-researcher'
+    Description: 'Name for the SageMaker user profile'
+    
+  BucketName:
+    Type: String
+    Default: 'fmri-dataset-bucket'
+    Description: 'Name for the S3 bucket to store fMRI datasets (must be globally unique)'
+    
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: 'VPC ID for SageMaker domain (leave empty to create new VPC)'
+    Default: ''
+    
+  SubnetIds:
+    Type: CommaDelimitedList
+    Description: 'Subnet IDs for SageMaker domain (leave empty to create new subnets)'
+    Default: ''
+
+Conditions:
+  CreateVPC: !Equals [!Ref VpcId, '']
+  CreateSubnets: !Equals [!Join ['', !Ref SubnetIds], '']
+
+Resources:
+  # VPC and Networking (only if not provided)
+  VPC:
+    Type: AWS::EC2::VPC
+    Condition: CreateVPC
+    Properties:
+      CidrBlock: '10.0.0.0/16'
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${DomainName}-vpc'
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: CreateVPC
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${DomainName}-igw'
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: CreateVPC
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Condition: CreateVPC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: '10.0.1.0/24'
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${DomainName}-public-subnet'
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateVPC
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${DomainName}-rt'
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Condition: CreateVPC
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVPC
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref RouteTable
+
+  # S3 Bucket for fMRI datasets
+  FMRIDatasetBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${BucketName}-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: TransitionToIA
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+              - TransitionInDays: 90
+                StorageClass: GLACIER
+              - TransitionInDays: 365
+                StorageClass: DEEP_ARCHIVE
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 90
+      NotificationConfiguration:
+        CloudWatchConfigurations:
+          - Event: s3:ObjectCreated:*
+            CloudWatchConfiguration:
+              LogGroupName: !Ref S3AccessLogGroup
+      Tags:
+        - Key: Purpose
+          Value: 'fMRI Dataset Storage'
+        - Key: Project
+          Value: 'fMRI Analysis'
+        - Key: CostCenter
+          Value: 'Research'
+
+  # CloudWatch Log Group for S3 access logs
+  S3AccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/s3/${BucketName}-access-logs'
+      RetentionInDays: 30
+
+  # S3 Bucket Policy for secure access
+  FMRIDatasetBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FMRIDatasetBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureConnections
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub '${FMRIDatasetBucket}/*'
+              - !GetAtt FMRIDatasetBucket.Arn
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          - Sid: AllowSageMakerAccess
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt SageMakerExecutionRole.Arn
+            Action:
+              - 's3:GetObject'
+              - 's3:PutObject'
+              - 's3:DeleteObject'
+              - 's3:ListBucket'
+              - 's3:GetBucketLocation'
+            Resource:
+              - !Sub '${FMRIDatasetBucket}/*'
+              - !GetAtt FMRIDatasetBucket.Arn
+
+  # IAM Role for SageMaker Execution
+  SageMakerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${DomainName}-execution-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sagemaker.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                  - s3:GetBucketVersioning
+                Resource:
+                  - !Sub '${FMRIDatasetBucket}/*'
+                  - !GetAtt FMRIDatasetBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketLocation
+                Resource: '*'
+        - PolicyName: CloudWatchLogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                  - logs:DescribeLogGroups
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+        - PolicyName: ECRAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: '*'
+        - PolicyName: SageMakerAppManagementPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sagemaker:CreateApp
+                  - sagemaker:DeleteApp
+                  - sagemaker:DescribeApp
+                  - sagemaker:ListApps
+                  - sagemaker:DescribeDomain
+                  - sagemaker:DescribeUserProfile
+                Resource: '*'
+
+  # IAM Role for SageMaker Domain
+  SageMakerDomainRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${DomainName}-domain-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sagemaker.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+        - arn:aws:iam::aws:policy/AmazonSageMakerCanvasFullAccess
+
+  # Security Group for SageMaker
+  SageMakerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Security group for SageMaker domain'
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref VpcId]
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${DomainName}-sg'
+  # SageMaker Domain
+  SageMakerDomain:
+    Type: AWS::SageMaker::Domain
+    Properties:
+      DomainName: !Ref DomainName
+      AuthMode: IAM
+      DefaultUserSettings:
+        ExecutionRole: !GetAtt SageMakerExecutionRole.Arn
+        SecurityGroups:
+          - !Ref SageMakerSecurityGroup
+        JupyterServerAppSettings:
+          DefaultResourceSpec:
+            InstanceType: ml.t3.medium
+            SageMakerImageArn: !Sub 'arn:aws:sagemaker:${AWS::Region}:081325390199:image/datascience-1.0'
+          LifecycleConfigArns:
+            - !GetAtt JupyterLifecycleConfig.StudioLifecycleConfigArn
+        KernelGatewayAppSettings:
+          DefaultResourceSpec:
+            InstanceType: ml.t3.medium
+            SageMakerImageArn: !Sub 'arn:aws:sagemaker:${AWS::Region}:081325390199:image/datascience-1.0'
+          LifecycleConfigArns:
+            - !GetAtt KernelGatewayLifecycleConfig.StudioLifecycleConfigArn
+      SubnetIds: !If 
+        - CreateVPC
+        - [!Ref PublicSubnet]
+        - !Ref SubnetIds
+      VpcId: !If [CreateVPC, !Ref VPC, !Ref VpcId]
+      Tags:
+        - Key: Purpose
+          Value: 'fMRI Analysis'
+        - Key: Project
+          Value: 'Neuroimaging Research'
+
+  # Lifecycle Configuration for JupyterServer (auto-shutdown)
+  JupyterLifecycleConfig:
+    Type: AWS::SageMaker::StudioLifecycleConfig
+    Properties:
+      StudioLifecycleConfigName: !Sub '${DomainName}-jupyter-lifecycle'
+      StudioLifecycleConfigAppType: JupyterServer
+      StudioLifecycleConfigContent: !Base64 |
+        #!/bin/bash
+        set -eux
+        
+        # Install auto-shutdown script
+        cat > /opt/ml/auto-shutdown.py << 'EOF'
+        #!/usr/bin/env python3
+        import boto3
+        import json
+        import os
+        import time
+        import subprocess
+        from datetime import datetime, timedelta
+        
+        def get_notebook_activity():
+            """Check for recent notebook activity"""
+            try:
+                # Check for running kernels
+                result = subprocess.run(['jupyter', 'kernelspec', 'list'], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    # Check if any kernels are busy
+                    kernel_check = subprocess.run(['jupyter', 'kernel', 'list'], 
+                                                capture_output=True, text=True)
+                    if 'busy' in kernel_check.stdout.lower():
+                        return True
+                
+                # Check for recent file modifications
+                home_dir = os.path.expanduser('~')
+                cutoff_time = time.time() - (30 * 60)  # 30 minutes ago
+                
+                for root, dirs, files in os.walk(home_dir):
+                    for file in files:
+                        if file.endswith(('.ipynb', '.py', '.R')):
+                            file_path = os.path.join(root, file)
+                            if os.path.getmtime(file_path) > cutoff_time:
+                                return True
+                
+                return False
+            except Exception as e:
+                print(f"Error checking activity: {e}")
+                return True  # Assume active if we can't check
+        
+        def shutdown_instance():
+            """Shutdown the SageMaker app"""
+            try:
+                # Get instance metadata
+                domain_id = os.environ.get('SAGEMAKER_DOMAIN_ID')
+                user_profile = os.environ.get('SAGEMAKER_USER_PROFILE_NAME')
+                app_name = os.environ.get('SAGEMAKER_APP_NAME')
+                app_type = os.environ.get('SAGEMAKER_APP_TYPE', 'JupyterServer')
+                
+                if not all([domain_id, user_profile, app_name]):
+                    print("Missing required environment variables for shutdown")
+                    return
+                
+                client = boto3.client('sagemaker')
+                
+                print(f"Shutting down {app_type} app: {app_name}")
+                client.delete_app(
+                    DomainId=domain_id,
+                    UserProfileName=user_profile,
+                    AppType=app_type,
+                    AppName=app_name
+                )
+                print("Shutdown initiated successfully")
+                
+            except Exception as e:
+                print(f"Error during shutdown: {e}")
+        
+        def main():
+            print(f"Auto-shutdown check started at {datetime.now()}")
+            
+            if not get_notebook_activity():
+                print("No recent activity detected. Initiating shutdown...")
+                shutdown_instance()
+            else:
+                print("Recent activity detected. Keeping instance running.")
+        
+        if __name__ == "__main__":
+            main()
+        EOF
+        
+        chmod +x /opt/ml/auto-shutdown.py
+        
+        # Create systemd service for auto-shutdown
+        cat > /etc/systemd/system/auto-shutdown.service << 'EOF'
+        [Unit]
+        Description=Auto-shutdown SageMaker instance on idle
+        After=network.target
+        
+        [Service]
+        Type=simple
+        User=root
+        ExecStart=/usr/bin/python3 /opt/ml/auto-shutdown.py
+        Restart=no
+        
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+        
+        # Create timer for auto-shutdown (runs every 30 minutes)
+        cat > /etc/systemd/system/auto-shutdown.timer << 'EOF'
+        [Unit]
+        Description=Run auto-shutdown check every 30 minutes
+        Requires=auto-shutdown.service
+        
+        [Timer]
+        OnBootSec=30min
+        OnUnitActiveSec=30min
+        
+        [Install]
+        WantedBy=timers.target
+        EOF
+        
+        # Enable and start the timer
+        systemctl daemon-reload
+        systemctl enable auto-shutdown.timer
+        systemctl start auto-shutdown.timer
+        
+        echo "Auto-shutdown configured successfully"
+
+  # Lifecycle Configuration for KernelGateway (auto-shutdown)
+  KernelGatewayLifecycleConfig:
+    Type: AWS::SageMaker::StudioLifecycleConfig
+    Properties:
+      StudioLifecycleConfigName: !Sub '${DomainName}-kernel-lifecycle'
+      StudioLifecycleConfigAppType: KernelGateway
+      StudioLifecycleConfigContent: !Base64 |
+        #!/bin/bash
+        set -eux
+        
+        # Install idle timeout for kernel gateway
+        cat > /opt/ml/kernel-auto-shutdown.py << 'EOF'
+        #!/usr/bin/env python3
+        import os
+        import time
+        import boto3
+        import psutil
+        from datetime import datetime
+        
+        IDLE_TIME_MINUTES = 30
+        CHECK_INTERVAL_SECONDS = 300  # 5 minutes
+        
+        def is_kernel_idle():
+            """Check if kernel is idle based on CPU and memory usage"""
+            try:
+                # Get current process info
+                current_process = psutil.Process()
+                
+                # Check CPU usage over last minute
+                cpu_percent = current_process.cpu_percent(interval=1)
+                
+                # Check memory usage
+                memory_info = current_process.memory_info()
+                memory_mb = memory_info.rss / 1024 / 1024
+                
+                # Consider idle if CPU < 5% and memory usage is stable
+                if cpu_percent < 5.0:
+                    return True
+                    
+                return False
+            except Exception as e:
+                print(f"Error checking kernel status: {e}")
+                return False
+        
+        def shutdown_kernel():
+            """Shutdown the kernel gateway app"""
+            try:
+                domain_id = os.environ.get('SAGEMAKER_DOMAIN_ID')
+                user_profile = os.environ.get('SAGEMAKER_USER_PROFILE_NAME')
+                app_name = os.environ.get('SAGEMAKER_APP_NAME')
+                
+                if not all([domain_id, user_profile, app_name]):
+                    print("Missing environment variables for shutdown")
+                    return
+                
+                client = boto3.client('sagemaker')
+                client.delete_app(
+                    DomainId=domain_id,
+                    UserProfileName=user_profile,
+                    AppType='KernelGateway',
+                    AppName=app_name
+                )
+                print("Kernel gateway shutdown initiated")
+                
+            except Exception as e:
+                print(f"Error during kernel shutdown: {e}")
+        
+        def main():
+            idle_start_time = None
+            
+            while True:
+                if is_kernel_idle():
+                    if idle_start_time is None:
+                        idle_start_time = time.time()
+                        print(f"Kernel idle detected at {datetime.now()}")
+                    elif time.time() - idle_start_time > (IDLE_TIME_MINUTES * 60):
+                        print(f"Kernel idle for {IDLE_TIME_MINUTES} minutes. Shutting down...")
+                        shutdown_kernel()
+                        break
+                else:
+                    if idle_start_time is not None:
+                        print(f"Kernel activity resumed at {datetime.now()}")
+                    idle_start_time = None
+                
+                time.sleep(CHECK_INTERVAL_SECONDS)
+        
+        if __name__ == "__main__":
+            main()
+        EOF
+        
+        chmod +x /opt/ml/kernel-auto-shutdown.py
+        
+        # Start the auto-shutdown script in background
+        nohup /usr/bin/python3 /opt/ml/kernel-auto-shutdown.py > /var/log/kernel-auto-shutdown.log 2>&1 &
+        
+        echo "Kernel auto-shutdown configured successfully"
+
+  # Lambda function for monitoring and cleanup
+  IdleShutdownFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${DomainName}-idle-shutdown-monitor'
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt IdleShutdownRole.Arn
+      Timeout: 300
+      Environment:
+        Variables:
+          DOMAIN_ID: !Ref SageMakerDomain
+          IDLE_TIME_MINUTES: '30'
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          from datetime import datetime, timedelta
+          
+          def lambda_handler(event, context):
+              sagemaker = boto3.client('sagemaker')
+              cloudwatch = boto3.client('cloudwatch')
+              
+              domain_id = os.environ['DOMAIN_ID']
+              idle_time_minutes = int(os.environ.get('IDLE_TIME_MINUTES', '30'))
+              
+              try:
+                  # List all apps in the domain
+                  response = sagemaker.list_apps(DomainIdEquals=domain_id)
+                  
+                  for app in response['Apps']:
+                      if app['Status'] == 'InService':
+                          app_name = app['AppName']
+                          app_type = app['AppType']
+                          user_profile = app['UserProfileName']
+                          
+                          # Check app activity via CloudWatch metrics
+                          end_time = datetime.utcnow()
+                          start_time = end_time - timedelta(minutes=idle_time_minutes)
+                          
+                          # Get CPU utilization metrics
+                          try:
+                              metrics_response = cloudwatch.get_metric_statistics(
+                                  Namespace='AWS/SageMaker',
+                                  MetricName='CPUUtilization',
+                                  Dimensions=[
+                                      {'Name': 'DomainId', 'Value': domain_id},
+                                      {'Name': 'UserProfileName', 'Value': user_profile},
+                                      {'Name': 'AppName', 'Value': app_name},
+                                      {'Name': 'AppType', 'Value': app_type}
+                                  ],
+                                  StartTime=start_time,
+                                  EndTime=end_time,
+                                  Period=300,
+                                  Statistics=['Average']
+                              )
+                              
+                              # Check if CPU usage is consistently low
+                              if metrics_response['Datapoints']:
+                                  avg_cpu = sum(dp['Average'] for dp in metrics_response['Datapoints']) / len(metrics_response['Datapoints'])
+                                  
+                                  if avg_cpu < 5.0:  # Less than 5% CPU usage
+                                      print(f"Shutting down idle app: {app_name} (CPU: {avg_cpu:.2f}%)")
+                                      
+                                      sagemaker.delete_app(
+                                          DomainId=domain_id,
+                                          UserProfileName=user_profile,
+                                          AppType=app_type,
+                                          AppName=app_name
+                                      )
+                                  else:
+                                      print(f"App {app_name} is active (CPU: {avg_cpu:.2f}%)")
+                              else:
+                                  print(f"No metrics available for app: {app_name}")
+                                  
+                          except Exception as e:
+                              print(f"Error checking metrics for {app_name}: {str(e)}")
+                  
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps('Idle shutdown check completed')
+                  }
+                  
+              except Exception as e:
+                  print(f"Error in idle shutdown function: {str(e)}")
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps(f'Error: {str(e)}')
+                  }
+
+  # IAM Role for idle shutdown Lambda
+  IdleShutdownRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SageMakerIdleShutdownPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sagemaker:ListApps
+                  - sagemaker:DescribeApp
+                  - sagemaker:DeleteApp
+                  - sagemaker:DescribeDomain
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:ListMetrics
+                Resource: '*'
+
+  # EventBridge rule to trigger idle shutdown check every 30 minutes
+  IdleShutdownSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${DomainName}-idle-shutdown-schedule'
+      Description: 'Trigger idle shutdown check every 30 minutes'
+      ScheduleExpression: 'rate(30 minutes)'
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt IdleShutdownFunction.Arn
+          Id: 'IdleShutdownTarget'
+
+  # Permission for EventBridge to invoke Lambda
+  IdleShutdownPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IdleShutdownFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt IdleShutdownSchedule.Arn
+
+  # SageMaker User Profile
+  SageMakerUserProfile:
+    Type: AWS::SageMaker::UserProfile
+    Properties:
+      DomainId: !Ref SageMakerDomain
+      UserProfileName: !Ref UserProfileName
+      UserSettings:
+        ExecutionRole: !GetAtt SageMakerExecutionRole.Arn
+        SecurityGroups:
+          - !Ref SageMakerSecurityGroup
+        JupyterServerAppSettings:
+          DefaultResourceSpec:
+            InstanceType: ml.t3.medium
+            SageMakerImageArn: !Sub 'arn:aws:sagemaker:${AWS::Region}:081325390199:image/datascience-1.0'
+          LifecycleConfigArns:
+            - !GetAtt JupyterLifecycleConfig.StudioLifecycleConfigArn
+        KernelGatewayAppSettings:
+          DefaultResourceSpec:
+            InstanceType: ml.t3.medium
+            SageMakerImageArn: !Sub 'arn:aws:sagemaker:${AWS::Region}:081325390199:image/datascience-1.0'
+          LifecycleConfigArns:
+            - !GetAtt KernelGatewayLifecycleConfig.StudioLifecycleConfigArn
+      Tags:
+        - Key: Purpose
+          Value: 'fMRI Researcher Profile'
+        - Key: AutoShutdown
+          Value: 'Enabled'
+
+  # Lambda function to upload the notebook to S3
+  NotebookUploadFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${DomainName}-notebook-uploader'
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt NotebookUploadRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import cfnresponse
+          import base64
+          
+          def lambda_handler(event, context):
+              try:
+                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                      s3_client = boto3.client('s3')
+                      bucket_name = event['ResourceProperties']['BucketName']
+                      
+                      # The notebook content will be passed as a parameter
+                      notebook_content = event['ResourceProperties']['NotebookContent']
+                      
+                      # Upload the notebook to S3
+                      s3_client.put_object(
+                          Bucket=bucket_name,
+                          Key='notebooks/parkinson_fmri_detector_sagemaker.ipynb',
+                          Body=notebook_content,
+                          ContentType='application/json'
+                      )
+                      
+                      # Create a sample dataset folder structure
+                      s3_client.put_object(
+                          Bucket=bucket_name,
+                          Key='datasets/README.txt',
+                          Body='Upload your fMRI datasets here. Organize by subject ID and session.',
+                          ContentType='text/plain'
+                      )
+                      
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                          'NotebookS3Location': f's3://{bucket_name}/notebooks/parkinson_fmri_detector_sagemaker.ipynb'
+                      })
+                  else:
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {})
+
+  # IAM Role for Lambda function
+  NotebookUploadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3UploadPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                Resource: !Sub '${FMRIDatasetBucket}/*'
+
+  # Custom resource to upload notebook
+  NotebookUpload:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt NotebookUploadFunction.Arn
+      BucketName: !Ref FMRIDatasetBucket
+      NotebookContent: !Sub |
+        {
+         "cells": [
+          {
+           "cell_type": "markdown",
+           "metadata": {},
+           "source": [
+            "# fMRI Data Analysis on AWS SageMaker\n",
+            "\n",
+            "This notebook demonstrates how to analyze fMRI data using fmriprep and nistat libraries on AWS SageMaker.\n",
+            "\n",
+            "## Prerequisites\n",
+            "- AWS SageMaker domain in ${AWS::Region} region\n",
+            "- fMRI data stored in S3 bucket: ${FMRIDatasetBucket}\n",
+            "- Required Python libraries: fmriprep, nistat, nibabel, numpy, pandas"
+           ]
+          },
+          {
+           "cell_type": "markdown",
+           "metadata": {},
+           "source": [
+            "## 1. Environment Setup and Library Installation"
+           ]
+          },
+          {
+           "cell_type": "code",
+           "execution_count": null,
+           "metadata": {},
+           "outputs": [],
+           "source": [
+            "# Install required packages\n",
+            "!pip install fmriprep nilearn nibabel numpy pandas matplotlib seaborn boto3 sagemaker\n",
+            "\n",
+            "# Import necessary libraries\n",
+            "import os\n",
+            "import boto3\n",
+            "import sagemaker\n",
+            "import numpy as np\n",
+            "import pandas as pd\n",
+            "import matplotlib.pyplot as plt\n",
+            "import seaborn as sns\n",
+            "from pathlib import Path\n",
+            "\n",
+            "# fMRI specific imports\n",
+            "import nibabel as nib\n",
+            "from nilearn import datasets, plotting, image\n",
+            "from nilearn.glm.first_level import FirstLevelModel\n",
+            "from nilearn.glm.second_level import SecondLevelModel\n",
+            "from nilearn.plotting import plot_stat_map, plot_design_matrix\n",
+            "\n",
+            "print(\"Libraries imported successfully!\")"
+           ]
+          },
+          {
+           "cell_type": "markdown",
+           "metadata": {},
+           "source": [
+            "## 2. AWS SageMaker Configuration"
+           ]
+          },
+          {
+           "cell_type": "code",
+           "execution_count": null,
+           "metadata": {},
+           "outputs": [],
+           "source": [
+            "# Configure AWS region and SageMaker session\n",
+            "region = '${AWS::Region}'\n",
+            "boto_session = boto3.Session(region_name=region)\n",
+            "sagemaker_session = sagemaker.Session(boto_session=boto_session)\n",
+            "\n",
+            "# Use the predefined S3 bucket\n",
+            "bucket = '${FMRIDatasetBucket}'\n",
+            "prefix = 'fmri-analysis'\n",
+            "\n",
+            "print(f\"Using S3 bucket: {bucket}\")\n",
+            "print(f\"Data prefix: {prefix}\")\n",
+            "print(f\"Region: {region}\")"
+           ]
+          }
+         ],
+         "metadata": {
+          "kernelspec": {
+           "display_name": "Python 3",
+           "language": "python",
+           "name": "python3"
+          },
+          "language_info": {
+           "codemirror_mode": {
+            "name": "ipython",
+            "version": 3
+           },
+           "file_extension": ".py",
+           "mimetype": "text/x-python",
+           "name": "python",
+           "nbconvert_exporter": "python",
+           "pygments_lexer": "ipython3",
+           "version": "3.8.5"
+          }
+         },
+         "nbformat": 4,
+         "nbformat_minor": 4
+        }
+
+Outputs:
+  SageMakerDomainId:
+    Description: 'SageMaker Domain ID'
+    Value: !Ref SageMakerDomain
+    Export:
+      Name: !Sub '${AWS::StackName}-DomainId'
+
+  SageMakerDomainUrl:
+    Description: 'SageMaker Studio URL'
+    Value: !Sub 'https://${SageMakerDomain}.studio.${AWS::Region}.sagemaker.aws/jupyter/default/lab'
+    Export:
+      Name: !Sub '${AWS::StackName}-StudioUrl'
+
+  UserProfileName:
+    Description: 'SageMaker User Profile Name'
+    Value: !Ref SageMakerUserProfile
+    Export:
+      Name: !Sub '${AWS::StackName}-UserProfile'
+
+  S3BucketName:
+    Description: 'S3 Bucket for fMRI datasets'
+    Value: !Ref FMRIDatasetBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-S3Bucket'
+
+  S3BucketArn:
+    Description: 'S3 Bucket ARN'
+    Value: !GetAtt FMRIDatasetBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-S3BucketArn'
+
+  ExecutionRoleArn:
+    Description: 'SageMaker Execution Role ARN'
+    Value: !GetAtt SageMakerExecutionRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ExecutionRole'
+
+  NotebookS3Location:
+    Description: 'S3 location of the uploaded notebook'
+    Value: !GetAtt NotebookUpload.NotebookS3Location
+    Export:
+      Name: !Sub '${AWS::StackName}-NotebookLocation'
+
+  VPCId:
+    Description: 'VPC ID used by SageMaker'
+    Value: !If [CreateVPC, !Ref VPC, !Ref VpcId]
+    Export:
+      Name: !Sub '${AWS::StackName}-VPCId'
+
+  SecurityGroupId:
+    Description: 'Security Group ID for SageMaker'
+    Value: !Ref SageMakerSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroup'
+
+  IdleShutdownFunctionArn:
+    Description: 'ARN of the idle shutdown Lambda function'
+    Value: !GetAtt IdleShutdownFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-IdleShutdownFunction'
+
+  JupyterLifecycleConfigArn:
+    Description: 'ARN of the Jupyter lifecycle configuration'
+    Value: !GetAtt JupyterLifecycleConfig.StudioLifecycleConfigArn
+    Export:
+      Name: !Sub '${AWS::StackName}-JupyterLifecycleConfig'
+
+  KernelGatewayLifecycleConfigArn:
+    Description: 'ARN of the KernelGateway lifecycle configuration'
+    Value: !GetAtt KernelGatewayLifecycleConfig.StudioLifecycleConfigArn
+    Export:
+      Name: !Sub '${AWS::StackName}-KernelGatewayLifecycleConfig'
+
+  S3BucketPolicy:
+    Description: 'S3 Bucket Policy for secure access'
+    Value: !Ref FMRIDatasetBucketPolicy
+    Export:
+      Name: !Sub '${AWS::StackName}-S3BucketPolicy'
