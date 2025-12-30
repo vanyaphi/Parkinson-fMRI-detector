@@ -372,8 +372,6 @@ Resources:
       RoleArn: !GetAtt SageMakerNotebookRole.Arn
       VolumeSizeInGB: !Ref VolumeSize
       DefaultCodeRepository: !GetAtt SageMakerCodeRepository.CodeRepositoryName
-      AdditionalCodeRepositories:
-        - !GetAtt SageMakerCodeRepository.CodeRepositoryName
       LifecycleConfigName: !GetAtt NotebookLifecycleConfig.NotebookInstanceLifecycleConfigName
       Tags:
         - Key: Purpose
