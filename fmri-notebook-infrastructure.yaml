@@ -36,9 +36,6 @@ Parameters:
     MaxValue: 16384
     Description: 'Size of the EBS volume in GB for the notebook instance'
 
-Conditions:
-  HasCustomGitRepo: !Not [!Equals [!Ref GitHubRepository, '']]
-
 Resources:
   # S3 Bucket for fMRI datasets
   FMRIDatasetBucket:
@@ -69,31 +66,11 @@ Resources:
                 StorageClass: STANDARD_IA
               - TransitionInDays: 90
                 StorageClass: GLACIER
-              - TransitionInDays: 365
-                StorageClass: DEEP_ARCHIVE
-          - Id: DeleteOldVersions
-            Status: Enabled
-            NoncurrentVersionExpiration:
-              NoncurrentDays: 90
-      NotificationConfiguration:
-        CloudWatchConfigurations:
-          - Event: s3:ObjectCreated:*
-            CloudWatchConfiguration:
-              LogGroupName: !Ref S3AccessLogGroup
       Tags:
         - Key: Purpose
           Value: 'fMRI Dataset Storage'
         - Key: Project
           Value: 'Parkinson Detection'
-        - Key: CostCenter
-          Value: 'Research'
-
-  # CloudWatch Log Group for S3 access logs
-  S3AccessLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/aws/s3/${BucketName}-access-logs'
-      RetentionInDays: 30
 
   # S3 Bucket Policy for secure access
   FMRIDatasetBucketPolicy:
@@ -108,7 +85,7 @@ Resources:
             Principal: '*'
             Action: 's3:*'
             Resource:
-              - !Sub '${FMRIDatasetBucket}/*'
+              - !Sub 'arn:aws:s3:::${FMRIDatasetBucket}/*'
               - !GetAtt FMRIDatasetBucket.Arn
             Condition:
               Bool:
@@ -124,14 +101,13 @@ Resources:
               - 's3:ListBucket'
               - 's3:GetBucketLocation'
             Resource:
-              - !Sub '${FMRIDatasetBucket}/*'
+              - !Sub 'arn:aws:s3:::${FMRIDatasetBucket}/*'
               - !GetAtt FMRIDatasetBucket.Arn
 
   # IAM Role for SageMaker Notebook Instance
   SageMakerNotebookRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${NotebookInstanceName}-execution-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -157,7 +133,7 @@ Resources:
                   - s3:GetBucketLocation
                   - s3:GetBucketVersioning
                 Resource:
-                  - !Sub '${FMRIDatasetBucket}/*'
+                  - !Sub 'arn:aws:s3:::${FMRIDatasetBucket}/*'
                   - !GetAtt FMRIDatasetBucket.Arn
               - Effect: Allow
                 Action:
@@ -176,51 +152,12 @@ Resources:
                   - logs:DescribeLogStreams
                   - logs:DescribeLogGroups
                 Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
-        - PolicyName: ECRAccessPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:BatchGetImage
-                Resource: '*'
-        - PolicyName: SageMakerNotebookPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - sagemaker:CreateTrainingJob
-                  - sagemaker:CreateProcessingJob
-                  - sagemaker:CreateModel
-                  - sagemaker:CreateEndpoint
-                  - sagemaker:CreateEndpointConfig
-                  - sagemaker:DescribeTrainingJob
-                  - sagemaker:DescribeProcessingJob
-                  - sagemaker:DescribeModel
-                  - sagemaker:DescribeEndpoint
-                  - sagemaker:DescribeEndpointConfig
-                  - sagemaker:DescribeNotebookInstance
-                  - sagemaker:StopNotebookInstance
-                  - sagemaker:ListTrainingJobs
-                  - sagemaker:ListProcessingJobs
-                  - sagemaker:ListModels
-                  - sagemaker:ListEndpoints
-                  - sagemaker:StopTrainingJob
-                  - sagemaker:StopProcessingJob
-                  - sagemaker:DeleteEndpoint
-                  - sagemaker:DeleteEndpointConfig
-                  - sagemaker:DeleteModel
-                Resource: '*'
 
   # Lifecycle Configuration for auto-shutdown and setup
   NotebookLifecycleConfig:
     Type: AWS::SageMaker::NotebookInstanceLifecycleConfig
     Properties:
-      NotebookInstanceLifecycleConfigName: !Sub '${NotebookInstanceName}-lifecycle'
+      NotebookInstanceLifecycleConfigName: 'fmrinblc'
       OnCreate:
         - Content: !Base64 |
             #!/bin/bash
@@ -240,10 +177,7 @@ Resources:
             pip install plotly imbalanced-learn
             pip install xgboost lightgbm optuna
             pip install boto3 sagemaker
-            
-            # Install additional scientific packages
             pip install scipy statsmodels
-            pip install jupyter-contrib-nbextensions
             
             echo "Package installation completed"
             EOF
@@ -252,95 +186,58 @@ Resources:
             cat > /home/ec2-user/SageMaker/auto-shutdown.py << 'SCRIPT'
             #!/usr/bin/env python3
             import boto3
-            import json
             import os
             import time
             import subprocess
-            from datetime import datetime, timedelta
-            import psutil
+            from datetime import datetime
             
             IDLE_TIME_MINUTES = 30
-            CHECK_INTERVAL_SECONDS = 300  # 5 minutes
+            CHECK_INTERVAL_SECONDS = 300
             
             def is_notebook_idle():
-                """Check if notebook is idle based on kernel activity and system usage"""
                 try:
-                    # Check if any Jupyter kernels are running
                     result = subprocess.run(['pgrep', '-f', 'ipykernel'], 
                                           capture_output=True, text=True)
                     if result.returncode == 0:
-                        # Kernels are running, check CPU usage
-                        cpu_percent = psutil.cpu_percent(interval=1)
-                        if cpu_percent > 10.0:  # More than 10% CPU usage
-                            return False
+                        return False
                     
-                    # Check for recent file modifications in SageMaker directory
                     sagemaker_dir = '/home/ec2-user/SageMaker'
                     cutoff_time = time.time() - (IDLE_TIME_MINUTES * 60)
                     
                     for root, dirs, files in os.walk(sagemaker_dir):
                         for file in files:
-                            if file.endswith(('.ipynb', '.py', '.R')):
+                            if file.endswith(('.ipynb', '.py')):
                                 file_path = os.path.join(root, file)
                                 if os.path.getmtime(file_path) > cutoff_time:
                                     return False
-                    
                     return True
-                    
-                except Exception as e:
-                    print(f"Error checking idle status: {e}")
-                    return False  # Assume not idle if we can't check
+                except:
+                    return False
             
             def shutdown_instance():
-                """Shutdown the notebook instance"""
                 try:
-                    # Get instance metadata
-                    response = subprocess.run(['curl', '-s', 
-                                             'http://169.254.169.254/latest/meta-data/instance-id'],
-                                           capture_output=True, text=True)
-                    instance_id = response.stdout.strip()
+                    import urllib.request
+                    token = urllib.request.urlopen('http://169.254.169.254/latest/api/token', 
+                                                 urllib.request.Request('http://169.254.169.254/latest/api/token', 
+                                                                      headers={'X-aws-ec2-metadata-token-ttl-seconds': '21600'}, 
+                                                                      method='PUT')).read().decode()
                     
-                    if not instance_id:
-                        print("Could not get instance ID")
-                        return
+                    region = urllib.request.urlopen('http://169.254.169.254/latest/meta-data/placement/region',
+                                                  urllib.request.Request('http://169.254.169.254/latest/meta-data/placement/region',
+                                                                       headers={'X-aws-ec2-metadata-token': token})).read().decode()
                     
-                    # Get region
-                    response = subprocess.run(['curl', '-s',
-                                             'http://169.254.169.254/latest/meta-data/placement/region'],
-                                           capture_output=True, text=True)
-                    region = response.stdout.strip()
-                    
-                    if not region:
-                        region = 'us-east-2'  # Default region
-                    
-                    # Stop the notebook instance
                     client = boto3.client('sagemaker', region_name=region)
                     
-                    # Get notebook instance name from tags or metadata
-                    ec2_client = boto3.client('ec2', region_name=region)
-                    instance_info = ec2_client.describe_instances(InstanceIds=[instance_id])
+                    # Get notebook name from environment or use default
+                    notebook_name = os.environ.get('NOTEBOOK_INSTANCE_NAME', 'parkinson-fmri-detector')
                     
-                    notebook_name = None
-                    for reservation in instance_info['Reservations']:
-                        for instance in reservation['Instances']:
-                            for tag in instance.get('Tags', []):
-                                if tag['Key'] == 'aws:sagemaker:notebook-instance-name':
-                                    notebook_name = tag['Value']
-                                    break
-                    
-                    if notebook_name:
-                        print(f"Stopping notebook instance: {notebook_name}")
-                        client.stop_notebook_instance(NotebookInstanceName=notebook_name)
-                        print("Shutdown initiated successfully")
-                    else:
-                        print("Could not determine notebook instance name")
-                        
+                    client.stop_notebook_instance(NotebookInstanceName=notebook_name)
+                    print(f"Shutdown initiated for {notebook_name}")
                 except Exception as e:
                     print(f"Error during shutdown: {e}")
             
             def main():
                 idle_start_time = None
-                
                 while True:
                     if is_notebook_idle():
                         if idle_start_time is None:
@@ -354,7 +251,6 @@ Resources:
                         if idle_start_time is not None:
                             print(f"Activity resumed at {datetime.now()}")
                         idle_start_time = None
-                    
                     time.sleep(CHECK_INTERVAL_SECONDS)
             
             if __name__ == "__main__":
@@ -363,7 +259,7 @@ Resources:
             
             chmod +x /home/ec2-user/SageMaker/auto-shutdown.py
             
-            # Create systemd service for auto-shutdown
+            # Create systemd service
             cat > /etc/systemd/system/sagemaker-auto-shutdown.service << 'SERVICE'
             [Unit]
             Description=SageMaker Notebook Auto-shutdown
@@ -374,6 +270,7 @@ Resources:
             User=ec2-user
             WorkingDirectory=/home/ec2-user/SageMaker
             ExecStart=/usr/bin/python3 /home/ec2-user/SageMaker/auto-shutdown.py
+            Environment=NOTEBOOK_INSTANCE_NAME=parkinson-fmri-detector
             Restart=always
             RestartSec=60
             
@@ -381,25 +278,17 @@ Resources:
             WantedBy=multi-user.target
             SERVICE
             
-            # Enable and start the auto-shutdown service
             systemctl daemon-reload
             systemctl enable sagemaker-auto-shutdown.service
             systemctl start sagemaker-auto-shutdown.service
-            
-            echo "Auto-shutdown service configured and started"
             
       OnStart:
         - Content: !Base64 |
             #!/bin/bash
             set -e
-            
-            # Restart auto-shutdown service on notebook start
             systemctl restart sagemaker-auto-shutdown.service
-            
-            # Update environment variables
             sudo -u ec2-user -i <<'EOF'
             echo "export AWS_DEFAULT_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)" >> ~/.bashrc
-            echo "Notebook instance started successfully"
             EOF
 
   # SageMaker Notebook Instance
@@ -410,11 +299,8 @@ Resources:
       InstanceType: !Ref InstanceType
       RoleArn: !GetAtt SageMakerNotebookRole.Arn
       VolumeSizeInGB: !Ref VolumeSize
-      DefaultCodeRepository: !If
-        - HasCustomGitRepo
-        - !Ref GitHubRepository
-        - !Ref AWS::NoValue
-      LifecycleConfigName: !Ref NotebookLifecycleConfig
+      DefaultCodeRepository: !Ref GitHubRepository
+      LifecycleConfigName: !GetAtt NotebookLifecycleConfig.NotebookInstanceLifecycleConfigName
       Tags:
         - Key: Purpose
           Value: 'Parkinson fMRI Detection'
@@ -423,15 +309,15 @@ Resources:
         - Key: AutoShutdown
           Value: 'Enabled'
 
-  # Lambda function to upload sample notebook
-  NotebookUploadFunction:
+  # Lambda function for S3 setup
+  S3SetupFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub '${NotebookInstanceName}-notebook-uploader'
+      FunctionName: !Sub '${NotebookInstanceName}-s3-setup'
       Runtime: python3.9
       Handler: index.lambda_handler
-      Role: !GetAtt NotebookUploadRole.Arn
-      Timeout: 300
+      Role: !GetAtt S3SetupRole.Arn
+      Timeout: 60
       Code:
         ZipFile: |
           import boto3
@@ -440,48 +326,29 @@ Resources:
           
           def lambda_handler(event, context):
               try:
-                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                  if event['RequestType'] == 'Create':
                       s3_client = boto3.client('s3')
                       bucket_name = event['ResourceProperties']['BucketName']
                       
-                      # Create sample folder structure
-                      folders = [
-                          'datasets/controls/',
-                          'datasets/patients/',
-                          'preprocessed/',
-                          'results/',
-                          'models/'
+                      files = [
+                          ('datasets/controls/README.txt', 'Upload control subject fMRI data here'),
+                          ('datasets/patients/README.txt', 'Upload patient fMRI data here'),
+                          ('results/README.txt', 'Analysis results will be saved here'),
+                          ('models/README.txt', 'Trained models will be saved here')
                       ]
                       
-                      for folder in folders:
-                          s3_client.put_object(
-                              Bucket=bucket_name,
-                              Key=f'{folder}README.txt',
-                              Body=f'Upload your data to the {folder} folder',
-                              ContentType='text/plain'
-                          )
+                      for key, body in files:
+                          s3_client.put_object(Bucket=bucket_name, Key=key, Body=body)
                       
-                      # Create a sample dataset info file
-                      dataset_info = """# Parkinson's fMRI Dataset Structure"""
-                      
-                      s3_client.put_object(
-                          Bucket=bucket_name,
-                          Key='DATASET_INFO.md',
-                          Body=dataset_info,
-                          ContentType='text/markdown'
-                      )
-                      
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                          'DatasetS3Location': f's3://{bucket_name}/'
-                      })
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
                   else:
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
               except Exception as e:
                   print(f"Error: {str(e)}")
                   cfnresponse.send(event, context, cfnresponse.FAILED, {})
 
-  # IAM Role for Lambda function
-  NotebookUploadRole:
+  # IAM Role for Lambda
+  S3SetupRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -494,21 +361,20 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: S3UploadPolicy
+        - PolicyName: S3Access
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
                   - s3:PutObject
-                  - s3:PutObjectAcl
-                Resource: !Sub '${FMRIDatasetBucket}/*'
+                Resource: !Sub 'arn:aws:s3:::${FMRIDatasetBucket}/*'
 
-  # Custom resource to setup S3 structure
+  # Custom resource for S3 setup
   S3Setup:
     Type: AWS::CloudFormation::CustomResource
     Properties:
-      ServiceToken: !GetAtt NotebookUploadFunction.Arn
+      ServiceToken: !GetAtt S3SetupFunction.Arn
       BucketName: !Ref FMRIDatasetBucket
 
 Outputs:
@@ -530,12 +396,6 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-S3Bucket'
 
-  S3BucketArn:
-    Description: 'S3 Bucket ARN'
-    Value: !GetAtt FMRIDatasetBucket.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-S3BucketArn'
-
   ExecutionRoleArn:
     Description: 'SageMaker Execution Role ARN'
     Value: !GetAtt SageMakerNotebookRole.Arn
@@ -547,9 +407,3 @@ Outputs:
     Value: !Ref GitHubRepository
     Export:
       Name: !Sub '${AWS::StackName}-GitHubRepo'
-
-  DatasetS3Location:
-    Description: 'S3 location for datasets'
-    Value: !GetAtt S3Setup.DatasetS3Location
-    Export:
-      Name: !Sub '${AWS::StackName}-DatasetLocation'
