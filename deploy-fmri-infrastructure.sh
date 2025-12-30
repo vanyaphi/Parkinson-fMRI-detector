@@ -1,16 +1,51 @@
 #!/bin/bash
 
-# Deployment script for fMRI SageMaker Infrastructure
+# Deployment script for Parkinson fMRI SageMaker Notebook Infrastructure
 # This script deploys the CloudFormation template with proper parameters
+
+
+## Expected Data Organization
+
+### Controls (Healthy Subjects)
+# Place control subject fMRI data in: datasets/controls/
+# - Filename pattern: sub-XXX_task-rest_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz
+
+# ### Patients (Parkinson's Disease)
+# Place patient fMRI data in: datasets/patients/
+# - Filename pattern: sub-XXX_task-rest_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz
+
+# ### Preprocessed Data
+# If you have additional preprocessed data: preprocessed/
+
+# ### Results
+# Analysis results will be saved to: results/
+
+# ### Models
+# Trained models will be saved to: models/
+
+# ## Data Requirements
+# - fMRI data should be preprocessed with fMRIPrep
+# - Data should be in MNI152NLin2009cAsym space
+# - Resting-state or task-based fMRI is supported
+# - NIfTI format (.nii.gz) required
+
+# ## Getting Started
+# 1. Upload your fMRI data to the appropriate folders
+# 2. Open the Parkinson's detection notebook
+# 3. Run the analysis pipeline
+# 4. Review results in the generated reports
+
 
 set -e
 
 # Default values
-STACK_NAME="fmri-sagemaker-stack"
+STACK_NAME="parkinson-fmri-notebook-stack"
 REGION="us-east-2"
-DOMAIN_NAME="fmri-analysis-domain"
-USER_PROFILE_NAME="fmri-researcher"
+NOTEBOOK_NAME="parkinson-fmri-detector"
+INSTANCE_TYPE="ml.t3.medium"
 BUCKET_NAME="fmri-dataset-bucket"
+GITHUB_REPO="https://github.com/vanyaphi/Parkinson-fMRI-detector.git"
+VOLUME_SIZE=20
 
 # Colors for output
 RED='\033[0;31m'
@@ -60,12 +95,14 @@ deploy_stack() {
     print_status "Deploying CloudFormation stack: ${STACK_NAME}"
     
     aws cloudformation deploy \
-        --template-file fmri-sagemaker-infrastructure.yaml \
+        --template-file fmri-notebook-infrastructure.yaml \
         --stack-name "${STACK_NAME}" \
         --parameter-overrides \
-            DomainName="${DOMAIN_NAME}" \
-            UserProfileName="${USER_PROFILE_NAME}" \
+            NotebookInstanceName="${NOTEBOOK_NAME}" \
+            InstanceType="${INSTANCE_TYPE}" \
             BucketName="${BUCKET_NAME}" \
+            GitHubRepository="${GITHUB_REPO}" \
+            VolumeSize="${VOLUME_SIZE}" \
         --capabilities CAPABILITY_NAMED_IAM \
         --region "${REGION}" \
         --no-fail-on-empty-changeset
@@ -89,9 +126,9 @@ get_stack_outputs() {
         --output table
 }
 
-# Function to upload the original notebook to S3
+# Function to upload the notebook (not needed since GitHub repo is cloned)
 upload_notebook() {
-    print_status "Uploading the complete fMRI analysis notebook..."
+    print_status "GitHub repository will be automatically cloned to the notebook instance..."
     
     # Get the S3 bucket name from stack outputs
     S3_BUCKET=$(aws cloudformation describe-stacks \
@@ -100,12 +137,8 @@ upload_notebook() {
         --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
         --output text)
     
-    if [ -f "parkinson_fmri_detector_sagemaker.ipynb" ]; then
-        aws s3 cp parkinson_fmri_detector_sagemaker.ipynb "s3://${S3_BUCKET}/notebooks/" --region "${REGION}"
-        print_status "Notebook uploaded to s3://${S3_BUCKET}/notebooks/parkinson_fmri_detector_sagemaker.ipynb"
-    else
-        print_warning "Parkinson's detection notebook file not found. Using the basic version created by CloudFormation."
-    fi
+    print_status "S3 bucket created: s3://${S3_BUCKET}/"
+    print_status "GitHub repository: ${GITHUB_REPO}"
 }
 
 # Function to create sample folder structure in S3
@@ -169,17 +202,19 @@ This folder will contain the output from your fMRI analysis:
 show_next_steps() {
     print_status "Deployment completed! Next steps:"
     echo ""
-    echo "1. Access SageMaker Studio:"
+    echo "1. Access SageMaker Notebook Instance:"
     
-    STUDIO_URL=$(aws cloudformation describe-stacks \
+    NOTEBOOK_URL=$(aws cloudformation describe-stacks \
         --stack-name "${STACK_NAME}" \
         --region "${REGION}" \
-        --query 'Stacks[0].Outputs[?OutputKey==`SageMakerDomainUrl`].OutputValue' \
+        --query 'Stacks[0].Outputs[?OutputKey==`NotebookInstanceUrl`].OutputValue' \
         --output text)
     
-    echo "   ${STUDIO_URL}"
+    echo "   ${NOTEBOOK_URL}"
     echo ""
-    echo "2. Upload your fMRI data to the S3 bucket:"
+    echo "2. Wait for notebook instance to be 'InService' (may take 5-10 minutes)"
+    echo ""
+    echo "3. Upload your fMRI data to the S3 bucket:"
     
     S3_BUCKET=$(aws cloudformation describe-stacks \
         --stack-name "${STACK_NAME}" \
@@ -187,27 +222,34 @@ show_next_steps() {
         --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
         --output text)
     
-    echo "   s3://${S3_BUCKET}/datasets/"
+    echo "   Controls: s3://${S3_BUCKET}/datasets/controls/"
+    echo "   Patients: s3://${S3_BUCKET}/datasets/patients/"
     echo ""
-    echo "3. Open the Parkinson's detection notebook in SageMaker Studio:"
-    echo "   s3://${S3_BUCKET}/notebooks/parkinson_fmri_detector_sagemaker.ipynb"
+    echo "4. Open the cloned GitHub repository in the notebook:"
+    echo "   ${GITHUB_REPO}"
     echo ""
-    echo "4. Update the data paths in the notebook to match your dataset structure"
+    echo "5. Run the Parkinson's detection analysis notebook"
     echo ""
     print_status "🔧 Auto-Shutdown Features Enabled:"
-    echo "   • Notebooks will automatically shut down after 30 minutes of inactivity"
-    echo "   • Lambda function monitors and cleans up idle instances every 30 minutes"
-    echo "   • Lifecycle configurations ensure cost optimization"
+    echo "   • Notebook will automatically shut down after 30 minutes of inactivity"
+    echo "   • Auto-shutdown service monitors kernel activity and file modifications"
+    echo "   • Cost optimization through intelligent idle detection"
     echo ""
     print_status "💰 Cost Optimization Features:"
     echo "   • S3 lifecycle policies transition data to cheaper storage classes"
     echo "   • Automatic cleanup of incomplete multipart uploads"
     echo "   • Version management with automatic deletion of old versions"
+    echo "   • EBS volume optimization for notebook storage"
     echo ""
     print_status "🔒 Security Features:"
     echo "   • S3 bucket policy enforces HTTPS-only access"
     echo "   • IAM roles follow principle of least privilege"
-    echo "   • VPC isolation for SageMaker domain"
+    echo "   • Encrypted S3 storage with AES-256"
+    echo ""
+    print_status "📊 GitHub Integration:"
+    echo "   • Repository automatically cloned to notebook instance"
+    echo "   • Latest code available on notebook startup"
+    echo "   • Version control integrated with development workflow"
     echo ""
     print_status "Happy analyzing! 🧠"
 }
@@ -215,7 +257,7 @@ show_next_steps() {
 # Main execution
 main() {
     echo "=========================================="
-    echo "fMRI SageMaker Infrastructure Deployment"
+    echo "Parkinson fMRI SageMaker Notebook Deployment"
     echo "=========================================="
     echo ""
     
@@ -230,12 +272,20 @@ main() {
                 REGION="$2"
                 shift 2
                 ;;
-            --domain-name)
-                DOMAIN_NAME="$2"
+            --notebook-name)
+                NOTEBOOK_NAME="$2"
                 shift 2
                 ;;
-            --user-profile)
-                USER_PROFILE_NAME="$2"
+            --instance-type)
+                INSTANCE_TYPE="$2"
+                shift 2
+                ;;
+            --github-repo)
+                GITHUB_REPO="$2"
+                shift 2
+                ;;
+            --volume-size)
+                VOLUME_SIZE="$2"
                 shift 2
                 ;;
             --bucket-name)
@@ -246,11 +296,13 @@ main() {
                 echo "Usage: $0 [OPTIONS]"
                 echo ""
                 echo "Options:"
-                echo "  --stack-name      CloudFormation stack name (default: fmri-sagemaker-stack)"
+                echo "  --stack-name      CloudFormation stack name (default: parkinson-fmri-notebook-stack)"
                 echo "  --region          AWS region (default: us-east-2)"
-                echo "  --domain-name     SageMaker domain name (default: fmri-analysis-domain)"
-                echo "  --user-profile    User profile name (default: fmri-researcher)"
+                echo "  --notebook-name   SageMaker notebook instance name (default: parkinson-fmri-detector)"
+                echo "  --instance-type   Notebook instance type (default: ml.t3.medium)"
                 echo "  --bucket-name     S3 bucket name prefix (default: fmri-dataset-bucket)"
+                echo "  --github-repo     GitHub repository URL (default: https://github.com/vanyaphi/Parkinson-fMRI-detector.git)"
+                echo "  --volume-size     EBS volume size in GB (default: 20)"
                 echo "  --help            Show this help message"
                 exit 0
                 ;;
@@ -265,9 +317,11 @@ main() {
     print_status "Configuration:"
     echo "  Stack Name: ${STACK_NAME}"
     echo "  Region: ${REGION}"
-    echo "  Domain Name: ${DOMAIN_NAME}"
-    echo "  User Profile: ${USER_PROFILE_NAME}"
+    echo "  Notebook Name: ${NOTEBOOK_NAME}"
+    echo "  Instance Type: ${INSTANCE_TYPE}"
     echo "  Bucket Name Prefix: ${BUCKET_NAME}"
+    echo "  GitHub Repository: ${GITHUB_REPO}"
+    echo "  Volume Size: ${VOLUME_SIZE} GB"
     echo ""
     
     check_aws_cli

@@ -2,100 +2,44 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: 'CloudFormation template for fMRI analysis on AWS SageMaker with necessary roles and S3 bucket'
 
 Parameters:
-  DomainName:
+  NotebookInstanceName:
     Type: String
-    Default: 'fmri-analysis-domain'
-    Description: 'Name for the SageMaker domain'
+    Default: 'parkinson-fmri-detector'
+    Description: 'Name for the SageMaker notebook instance'
     
-  UserProfileName:
+  InstanceType:
     Type: String
-    Default: 'fmri-researcher'
-    Description: 'Name for the SageMaker user profile'
+    Default: 'ml.t3.medium'
+    AllowedValues:
+      - ml.t3.medium
+      - ml.t3.large
+      - ml.t3.xlarge
+      - ml.m5.large
+      - ml.m5.xlarge
+      - ml.m5.2xlarge
+    Description: 'SageMaker notebook instance type'
     
   BucketName:
     Type: String
     Default: 'fmri-dataset-bucket'
     Description: 'Name for the S3 bucket to store fMRI datasets (must be globally unique)'
     
-  VpcId:
-    Type: AWS::EC2::VPC::Id
-    Description: 'VPC ID for SageMaker domain (leave empty to create new VPC)'
-    Default: ''
+  GitHubRepository:
+    Type: String
+    Default: 'https://github.com/vanyaphi/Parkinson-fMRI-detector.git'
+    Description: 'GitHub repository URL to clone into the notebook instance'
     
-  SubnetIds:
-    Type: CommaDelimitedList
-    Description: 'Subnet IDs for SageMaker domain (leave empty to create new subnets)'
-    Default: ''
+  VolumeSize:
+    Type: Number
+    Default: 20
+    MinValue: 5
+    MaxValue: 16384
+    Description: 'Size of the EBS volume in GB for the notebook instance'
 
 Conditions:
-  CreateVPC: !Equals [!Ref VpcId, '']
-  CreateSubnets: !Equals [!Join ['', !Ref SubnetIds], '']
+  HasCustomGitRepo: !Not [!Equals [!Ref GitHubRepository, '']]
 
 Resources:
-  # VPC and Networking (only if not provided)
-  VPC:
-    Type: AWS::EC2::VPC
-    Condition: CreateVPC
-    Properties:
-      CidrBlock: '10.0.0.0/16'
-      EnableDnsHostnames: true
-      EnableDnsSupport: true
-      Tags:
-        - Key: Name
-          Value: !Sub '${DomainName}-vpc'
-
-  InternetGateway:
-    Type: AWS::EC2::InternetGateway
-    Condition: CreateVPC
-    Properties:
-      Tags:
-        - Key: Name
-          Value: !Sub '${DomainName}-igw'
-
-  AttachGateway:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Condition: CreateVPC
-    Properties:
-      VpcId: !Ref VPC
-      InternetGatewayId: !Ref InternetGateway
-
-  PublicSubnet:
-    Type: AWS::EC2::Subnet
-    Condition: CreateVPC
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: '10.0.1.0/24'
-      AvailabilityZone: !Select [0, !GetAZs '']
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !Sub '${DomainName}-public-subnet'
-
-  RouteTable:
-    Type: AWS::EC2::RouteTable
-    Condition: CreateVPC
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: !Sub '${DomainName}-rt'
-
-  PublicRoute:
-    Type: AWS::EC2::Route
-    Condition: CreateVPC
-    DependsOn: AttachGateway
-    Properties:
-      RouteTableId: !Ref RouteTable
-      DestinationCidrBlock: '0.0.0.0/0'
-      GatewayId: !Ref InternetGateway
-
-  SubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Condition: CreateVPC
-    Properties:
-      SubnetId: !Ref PublicSubnet
-      RouteTableId: !Ref RouteTable
-
   # S3 Bucket for fMRI datasets
   FMRIDatasetBucket:
     Type: AWS::S3::Bucket
@@ -183,11 +127,11 @@ Resources:
               - !Sub '${FMRIDatasetBucket}/*'
               - !GetAtt FMRIDatasetBucket.Arn
 
-  # IAM Role for SageMaker Execution
-  SageMakerExecutionRole:
+  # IAM Role for SageMaker Notebook Instance
+  SageMakerNotebookRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${DomainName}-execution-role'
+      RoleName: !Sub '${NotebookInstanceName}-execution-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -243,18 +187,31 @@ Resources:
                   - ecr:GetDownloadUrlForLayer
                   - ecr:BatchGetImage
                 Resource: '*'
-        - PolicyName: SageMakerAppManagementPolicy
+        - PolicyName: SageMakerNotebookPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - sagemaker:CreateApp
-                  - sagemaker:DeleteApp
-                  - sagemaker:DescribeApp
-                  - sagemaker:ListApps
-                  - sagemaker:DescribeDomain
-                  - sagemaker:DescribeUserProfile
+                  - sagemaker:CreateTrainingJob
+                  - sagemaker:CreateProcessingJob
+                  - sagemaker:CreateModel
+                  - sagemaker:CreateEndpoint
+                  - sagemaker:CreateEndpointConfig
+                  - sagemaker:DescribeTrainingJob
+                  - sagemaker:DescribeProcessingJob
+                  - sagemaker:DescribeModel
+                  - sagemaker:DescribeEndpoint
+                  - sagemaker:DescribeEndpointConfig
+                  - sagemaker:ListTrainingJobs
+                  - sagemaker:ListProcessingJobs
+                  - sagemaker:ListModels
+                  - sagemaker:ListEndpoints
+                  - sagemaker:StopTrainingJob
+                  - sagemaker:StopProcessingJob
+                  - sagemaker:DeleteEndpoint
+                  - sagemaker:DeleteEndpointConfig
+                  - sagemaker:DeleteModel
                 Resource: '*'
 
   # IAM Role for SageMaker Domain

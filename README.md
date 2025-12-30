@@ -1,6 +1,6 @@
 # Parkinson's Disease fMRI Detection on AWS SageMaker
 
-This project implements a comprehensive machine learning pipeline for detecting Parkinson's disease from functional MRI (fMRI) data using AWS SageMaker. The solution includes automated infrastructure deployment, data processing, feature extraction, and multiple classification algorithms.
+This project implements a comprehensive machine learning pipeline for detecting Parkinson's disease from functional MRI (fMRI) data using AWS SageMaker Notebook Instances. The solution includes automated infrastructure deployment, GitHub integration, data processing, feature extraction, and multiple classification algorithms.
 
 ## 🧠 Overview
 
@@ -16,17 +16,12 @@ The pipeline analyzes resting-state fMRI data to distinguish between Parkinson's
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   S3 Bucket     │    │   SageMaker      │    │   CloudWatch    │
-│                 │    │   Studio         │    │   Monitoring    │
-│ ├── datasets/   │◄──►│                  │◄──►│                 │
-│ ├── results/    │    │ ├── Notebooks    │    │ ├── Metrics     │
-│ └── models/     │    │ ├── Processing   │    │ └── Logs        │
-└─────────────────┘    │ └── Training     │    └─────────────────┘
-                       └──────────────────┘
-                                │
-                       ┌──────────────────┐
-                       │   Auto-Shutdown  │
-                       │   Lambda         │
-                       │   (30min idle)   │
+│                 │    │   Notebook       │    │   Monitoring    │
+│ ├── datasets/   │◄──►│   Instance       │◄──►│                 │
+│ ├── results/    │    │                  │    │ ├── Metrics     │
+│ └── models/     │    │ ├── GitHub Repo  │    │ └── Logs        │
+└─────────────────┘    │ ├── Auto-Shutdown│    └─────────────────┘
+                       │ └── fMRI Analysis│
                        └──────────────────┘
 ```
 
@@ -34,9 +29,9 @@ The pipeline analyzes resting-state fMRI data to distinguish between Parkinson's
 
 ```
 ├── parkinson_fmri_detector_sagemaker.ipynb  # Main analysis notebook
-├── fmri-sagemaker-infrastructure.yaml       # CloudFormation template
+├── fmri-notebook-infrastructure.yaml        # CloudFormation template
 ├── deploy-fmri-infrastructure.sh            # Deployment script
-├── manage-auto-shutdown.sh                  # Auto-shutdown management
+├── manage-notebook.sh                       # Notebook management script
 └── README.md                                # This file
 ```
 
@@ -52,16 +47,18 @@ The pipeline analyzes resting-state fMRI data to distinguish between Parkinson's
 
 ```bash
 # Make scripts executable
-chmod +x deploy-fmri-infrastructure.sh manage-auto-shutdown.sh
+chmod +x deploy-fmri-infrastructure.sh manage-notebook.sh
 
-# Deploy with default settings
+# Deploy with default settings (uses GitHub repo)
 ./deploy-fmri-infrastructure.sh
 
 # Or customize deployment
 ./deploy-fmri-infrastructure.sh \
     --stack-name my-parkinson-stack \
     --region us-west-2 \
-    --domain-name my-fmri-domain
+    --notebook-name my-fmri-notebook \
+    --instance-type ml.m5.large \
+    --github-repo https://github.com/your-username/your-repo.git
 ```
 
 ### 2. Upload Your Data
@@ -80,14 +77,17 @@ s3://your-bucket/datasets/
 
 ### 3. Run Analysis
 
-1. Access SageMaker Studio via the provided URL
-2. Open the notebook: `parkinson_fmri_detector_sagemaker.ipynb`
-3. Execute cells sequentially
-4. Review results in the generated reports
+1. Wait for notebook instance to be 'InService' (5-10 minutes)
+2. Access the SageMaker Notebook via the provided URL
+3. Navigate to the cloned GitHub repository
+4. Open the notebook: `parkinson_fmri_detector_sagemaker.ipynb`
+5. Execute cells sequentially
+6. Review results in the generated reports
 
 ## 🔧 Features
 
 ### Data Processing
+- **GitHub Integration**: Automatic repository cloning on notebook startup
 - **Automated S3 Integration**: Seamless data loading from S3
 - **ROI Extraction**: Harvard-Oxford atlas-based region extraction
 - **Feature Engineering**: 1000+ features per subject including:
@@ -111,10 +111,10 @@ s3://your-bucket/datasets/
 - **Comprehensive Reports**: Automated summary generation
 
 ### Cost Optimization
-- **Auto-Shutdown**: 30-minute idle timeout for notebooks
+- **Auto-Shutdown**: 30-minute idle timeout for notebook instances
 - **S3 Lifecycle**: Automatic data archiving
 - **Resource Monitoring**: CloudWatch integration
-- **Spot Instances**: Optional cost reduction
+- **EBS Optimization**: Right-sized storage volumes
 
 ## 📊 Expected Results
 
@@ -126,40 +126,40 @@ The pipeline typically achieves:
 
 ## 🛠️ Management Commands
 
-### Auto-Shutdown Management
+### Notebook Instance Management
 ```bash
-# Check current status
-./manage-auto-shutdown.sh status
+# Check notebook status
+./manage-notebook.sh status
 
-# Disable auto-shutdown temporarily
-./manage-auto-shutdown.sh disable
+# Start notebook instance
+./manage-notebook.sh start
 
-# Change idle timeout to 60 minutes
-./manage-auto-shutdown.sh update-timeout --timeout 60
+# Stop notebook instance
+./manage-notebook.sh stop
 
-# Manually trigger shutdown check
-./manage-auto-shutdown.sh trigger
+# View notebook logs
+./manage-notebook.sh logs
 ```
 
 ### Infrastructure Management
 ```bash
 # Update stack
 aws cloudformation update-stack \
-    --stack-name fmri-sagemaker-stack \
-    --template-body file://fmri-sagemaker-infrastructure.yaml
+    --stack-name parkinson-fmri-notebook-stack \
+    --template-body file://fmri-notebook-infrastructure.yaml
 
 # Delete stack (cleanup)
 aws cloudformation delete-stack \
-    --stack-name fmri-sagemaker-stack
+    --stack-name parkinson-fmri-notebook-stack
 ```
 
 ## 🔒 Security Features
 
-- **VPC Isolation**: SageMaker domain in private VPC
 - **IAM Roles**: Principle of least privilege
 - **S3 Encryption**: Server-side encryption enabled
 - **HTTPS Only**: Enforced secure transport
 - **Access Logging**: CloudWatch integration
+- **GitHub Integration**: Secure repository access
 
 ## 💰 Cost Optimization
 
@@ -170,8 +170,8 @@ aws cloudformation delete-stack \
 
 ### Manual Optimization
 - Use `ml.t3.medium` instances for development
-- Scale to `ml.m5.large` or higher for production
-- Consider Spot instances for batch processing
+- Scale to `ml.m5.large` or higher for production datasets
+- Monitor usage with CloudWatch metrics
 - Archive old results to Glacier/Deep Archive
 
 ## 🧪 Sample Data
@@ -204,9 +204,14 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ### Common Issues
 
 **Notebook won't start**
-- Check SageMaker domain status
+- Check notebook instance status with `./manage-notebook.sh status`
 - Verify IAM permissions
-- Review CloudWatch logs
+- Review CloudWatch logs with `./manage-notebook.sh logs`
+
+**GitHub repository not cloned**
+- Verify repository URL is accessible
+- Check notebook instance lifecycle configuration
+- Ensure repository is public or has proper access
 
 **Data loading errors**
 - Verify S3 bucket permissions
@@ -214,14 +219,14 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Ensure data is in correct format
 
 **Out of memory errors**
-- Reduce batch size
-- Use larger instance type
-- Process data in chunks
+- Reduce batch size in notebook
+- Use larger instance type (ml.m5.large or higher)
+- Process data in smaller chunks
 
 **Auto-shutdown not working**
-- Check Lambda function logs
-- Verify EventBridge rule status
-- Review IAM permissions
+- Check notebook instance logs
+- Verify lifecycle configuration is applied
+- Review systemd service status
 
 ### Support
 
