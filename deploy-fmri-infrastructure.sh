@@ -45,6 +45,8 @@ NOTEBOOK_NAME="parkinson-fmri-detector"
 INSTANCE_TYPE="ml.t3.medium"
 BUCKET_NAME="fmri-dataset-bucket"
 GITHUB_REPO="https://github.com/vanyaphi/Parkinson-fMRI-detector.git"
+GITHUB_USERNAME=""
+GITHUB_TOKEN=""
 VOLUME_SIZE=20
 
 # Colors for output
@@ -94,15 +96,19 @@ validate_parameters() {
 deploy_stack() {
     print_status "Deploying CloudFormation stack: ${STACK_NAME}"
     
+    # Build parameter overrides
+    PARAM_OVERRIDES="NotebookInstanceName=${NOTEBOOK_NAME} InstanceType=${INSTANCE_TYPE} BucketName=${BUCKET_NAME} GitHubRepository=${GITHUB_REPO} VolumeSize=${VOLUME_SIZE}"
+    
+    # Add GitHub credentials if provided
+    if [ -n "$GITHUB_USERNAME" ] && [ -n "$GITHUB_TOKEN" ]; then
+        PARAM_OVERRIDES="${PARAM_OVERRIDES} GitHubUsername=${GITHUB_USERNAME} GitHubToken=${GITHUB_TOKEN}"
+        print_status "Using GitHub credentials for private repository access"
+    fi
+    
     aws cloudformation deploy \
         --template-file fmri-notebook-infrastructure.yaml \
         --stack-name "${STACK_NAME}" \
-        --parameter-overrides \
-            NotebookInstanceName="${NOTEBOOK_NAME}" \
-            InstanceType="${INSTANCE_TYPE}" \
-            BucketName="${BUCKET_NAME}" \
-            GitHubRepository="${GITHUB_REPO}" \
-            VolumeSize="${VOLUME_SIZE}" \
+        --parameter-overrides ${PARAM_OVERRIDES} \
         --capabilities CAPABILITY_NAMED_IAM \
         --region "${REGION}" \
         --no-fail-on-empty-changeset
@@ -292,6 +298,14 @@ main() {
                 BUCKET_NAME="$2"
                 shift 2
                 ;;
+            --github-username)
+                GITHUB_USERNAME="$2"
+                shift 2
+                ;;
+            --github-token)
+                GITHUB_TOKEN="$2"
+                shift 2
+                ;;
             --help)
                 echo "Usage: $0 [OPTIONS]"
                 echo ""
@@ -302,6 +316,8 @@ main() {
                 echo "  --instance-type   Notebook instance type (default: ml.t3.medium)"
                 echo "  --bucket-name     S3 bucket name prefix (default: fmri-dataset-bucket)"
                 echo "  --github-repo     GitHub repository URL (default: https://github.com/vanyaphi/Parkinson-fMRI-detector.git)"
+                echo "  --github-username GitHub username for private repositories (optional)"
+                echo "  --github-token    GitHub personal access token for private repositories (optional)"
                 echo "  --volume-size     EBS volume size in GB (default: 20)"
                 echo "  --help            Show this help message"
                 exit 0
@@ -321,6 +337,12 @@ main() {
     echo "  Instance Type: ${INSTANCE_TYPE}"
     echo "  Bucket Name Prefix: ${BUCKET_NAME}"
     echo "  GitHub Repository: ${GITHUB_REPO}"
+    if [ -n "$GITHUB_USERNAME" ]; then
+        echo "  GitHub Username: ${GITHUB_USERNAME}"
+        echo "  GitHub Token: [REDACTED]"
+    else
+        echo "  GitHub Credentials: Not provided (public repository access only)"
+    fi
     echo "  Volume Size: ${VOLUME_SIZE} GB"
     echo ""
     

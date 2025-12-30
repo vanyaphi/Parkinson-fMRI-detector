@@ -38,9 +38,33 @@
 **Error**: Repository clone fails in notebook
 
 **Solutions**:
-- Ensure the repository URL is correct and accessible
-- Use public repositories or configure SSH keys for private repos
-- Check the repository exists: `https://github.com/vanyaphi/Parkinson-fMRI-detector.git`
+- **Public Repositories**: Ensure the repository URL is correct and accessible
+- **Private Repositories**: Use GitHub credentials with deployment script:
+  ```bash
+  ./deploy-fmri-infrastructure.sh \
+      --github-username your-username \
+      --github-token ghp_your_personal_access_token
+  ```
+- **Token Issues**: Ensure GitHub token has `repo` scope permissions
+- **Repository URL**: Check the repository exists and is accessible
+- **Secrets Manager**: Verify AWS Secrets Manager permissions in IAM role
+
+**GitHub Token Creation**:
+1. Go to GitHub Settings → Developer settings → Personal access tokens
+2. Generate new token with `repo` scope
+3. Copy token (starts with `ghp_`) and use with `--github-token`
+
+**Debugging GitHub Integration**:
+```bash
+# Check if code repository was created
+aws sagemaker list-code-repositories
+
+# Check secrets manager (if using private repo)
+aws secretsmanager list-secrets --query 'SecretList[?contains(Name, `github`)]'
+
+# View notebook lifecycle logs
+./manage-notebook.sh logs
+```
 
 ### 5. Notebook Instance Won't Start
 

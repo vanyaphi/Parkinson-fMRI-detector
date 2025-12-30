@@ -29,6 +29,17 @@ Parameters:
     Default: 'https://github.com/vanyaphi/Parkinson-fMRI-detector.git'
     Description: 'GitHub repository URL to clone into the notebook instance'
     
+  GitHubUsername:
+    Type: String
+    Default: ''
+    Description: 'GitHub username for private repositories (optional)'
+    
+  GitHubToken:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: 'GitHub personal access token for private repositories (optional)'
+    
   VolumeSize:
     Type: Number
     Default: 20
@@ -36,7 +47,47 @@ Parameters:
     MaxValue: 16384
     Description: 'Size of the EBS volume in GB for the notebook instance'
 
+Conditions:
+  HasGitHubCredentials: !And
+    - !Not [!Equals [!Ref GitHubUsername, '']]
+    - !Not [!Equals [!Ref GitHubToken, '']]
+
 Resources:
+  # SageMaker Code Repository
+  SageMakerCodeRepository:
+    Type: AWS::SageMaker::CodeRepository
+    Properties:
+      CodeRepositoryName: !Sub '${NotebookInstanceName}-code-repo'
+      GitConfig:
+        RepositoryUrl: !Ref GitHubRepository
+        Branch: main
+        SecretArn: !If
+          - HasGitHubCredentials
+          - !Ref GitHubSecret
+          - !Ref AWS::NoValue
+      Tags:
+        - Key: Purpose
+          Value: 'Parkinson fMRI Detection Code'
+        - Key: Project
+          Value: 'Neuroimaging Research'
+
+  # AWS Secrets Manager secret for GitHub credentials (if provided)
+  GitHubSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: HasGitHubCredentials
+    Properties:
+      Name: !Sub '${NotebookInstanceName}-github-secret'
+      Description: 'GitHub credentials for SageMaker Code Repository'
+      SecretString: !Sub |
+        {
+          "username": "${GitHubUsername}",
+          "password": "${GitHubToken}"
+        }
+      Tags:
+        - Key: Purpose
+          Value: 'GitHub Authentication'
+        - Key: Project
+          Value: 'Parkinson fMRI Detection'
   # S3 Bucket for fMRI datasets
   FMRIDatasetBucket:
     Type: AWS::S3::Bucket
@@ -152,6 +203,27 @@ Resources:
                   - logs:DescribeLogStreams
                   - logs:DescribeLogGroups
                 Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+        - PolicyName: SecretsManagerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource: !If
+                  - HasGitHubCredentials
+                  - !Ref GitHubSecret
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*'
+        - PolicyName: CodeRepositoryPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sagemaker:DescribeCodeRepository
+                  - sagemaker:ListCodeRepositories
+                Resource: '*'
 
   # Lifecycle Configuration for auto-shutdown and setup
   NotebookLifecycleConfig:
@@ -299,7 +371,9 @@ Resources:
       InstanceType: !Ref InstanceType
       RoleArn: !GetAtt SageMakerNotebookRole.Arn
       VolumeSizeInGB: !Ref VolumeSize
-      DefaultCodeRepository: !Ref GitHubRepository
+      DefaultCodeRepository: !GetAtt SageMakerCodeRepository.CodeRepositoryName
+      AdditionalCodeRepositories:
+        - !GetAtt SageMakerCodeRepository.CodeRepositoryName
       LifecycleConfigName: !GetAtt NotebookLifecycleConfig.NotebookInstanceLifecycleConfigName
       Tags:
         - Key: Purpose
@@ -308,6 +382,8 @@ Resources:
           Value: 'Neuroimaging Research'
         - Key: AutoShutdown
           Value: 'Enabled'
+        - Key: CodeRepository
+          Value: !Ref SageMakerCodeRepository
 
   # Lambda function for S3 setup
   S3SetupFunction:
@@ -401,6 +477,19 @@ Outputs:
     Value: !GetAtt SageMakerNotebookRole.Arn
     Export:
       Name: !Sub '${AWS::StackName}-ExecutionRole'
+
+  CodeRepositoryName:
+    Description: 'SageMaker Code Repository Name'
+    Value: !GetAtt SageMakerCodeRepository.CodeRepositoryName
+    Export:
+      Name: !Sub '${AWS::StackName}-CodeRepository'
+
+  GitHubSecretArn:
+    Condition: HasGitHubCredentials
+    Description: 'GitHub credentials secret ARN'
+    Value: !Ref GitHubSecret
+    Export:
+      Name: !Sub '${AWS::StackName}-GitHubSecret'
 
   GitHubRepository:
     Description: 'GitHub repository cloned to notebook'

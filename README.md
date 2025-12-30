@@ -49,17 +49,48 @@ The pipeline analyzes resting-state fMRI data to distinguish between Parkinson's
 # Make scripts executable
 chmod +x deploy-fmri-infrastructure.sh manage-notebook.sh
 
-# Deploy with default settings (uses GitHub repo)
+# Deploy with default settings (uses public GitHub repo)
 ./deploy-fmri-infrastructure.sh
 
-# Or customize deployment
+# Deploy with private GitHub repository access
+./deploy-fmri-infrastructure.sh \
+    --github-username your-github-username \
+    --github-token ghp_your_personal_access_token
+
+# Or customize deployment with all options
 ./deploy-fmri-infrastructure.sh \
     --stack-name my-parkinson-stack \
     --region us-west-2 \
     --notebook-name my-fmri-notebook \
     --instance-type ml.m5.large \
-    --github-repo https://github.com/your-username/your-repo.git
+    --github-repo https://github.com/your-username/your-private-repo.git \
+    --github-username your-username \
+    --github-token ghp_your_token
 ```
+
+#### GitHub Integration Options
+
+**Public Repositories** (default):
+- No credentials needed
+- Repository is cloned automatically on notebook startup
+
+**Private Repositories**:
+- Provide `--github-username` and `--github-token` parameters
+- GitHub personal access token is securely stored in AWS Secrets Manager
+- Token requires `repo` scope for private repository access
+
+#### Creating a GitHub Personal Access Token
+
+For private repositories, you'll need a GitHub Personal Access Token:
+
+1. Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Click "Generate new token (classic)"
+3. Set expiration and select scopes:
+   - ✅ `repo` (Full control of private repositories)
+4. Copy the generated token (starts with `ghp_`)
+5. Use the token with the `--github-token` parameter
+
+**Security Note**: The token is encrypted and stored in AWS Secrets Manager, never logged or displayed in plain text.
 
 ### 2. Upload Your Data
 
@@ -87,7 +118,8 @@ s3://your-bucket/datasets/
 ## 🔧 Features
 
 ### Data Processing
-- **GitHub Integration**: Automatic repository cloning on notebook startup
+- **GitHub Integration**: Automatic repository cloning with support for private repositories
+- **Secure Credentials**: GitHub tokens stored in AWS Secrets Manager
 - **Automated S3 Integration**: Seamless data loading from S3
 - **ROI Extraction**: Harvard-Oxford atlas-based region extraction
 - **Feature Engineering**: 1000+ features per subject including:
@@ -158,6 +190,7 @@ aws cloudformation delete-stack \
 - **IAM Roles**: Principle of least privilege
 - **S3 Encryption**: Server-side encryption enabled
 - **HTTPS Only**: Enforced secure transport
+- **GitHub Credentials**: Secure token storage in AWS Secrets Manager
 - **Access Logging**: CloudWatch integration
 - **GitHub Integration**: Secure repository access
 
@@ -210,8 +243,10 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 **GitHub repository not cloned**
 - Verify repository URL is accessible
-- Check notebook instance lifecycle configuration
-- Ensure repository is public or has proper access
+- For private repositories, ensure GitHub credentials are provided
+- Check that GitHub token has `repo` scope permissions
+- Review notebook instance lifecycle configuration logs
+- Verify AWS Secrets Manager permissions for private repositories
 
 **Data loading errors**
 - Verify S3 bucket permissions
