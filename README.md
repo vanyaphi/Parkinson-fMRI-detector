@@ -18,11 +18,11 @@ The pipeline analyzes resting-state fMRI data to distinguish between Parkinson's
 │   S3 Bucket     │    │   SageMaker      │    │   CloudWatch    │
 │                 │    │   Notebook       │    │   Monitoring    │
 │ ├── datasets/   │◄──►│   Instance       │◄──►│                 │
-│ ├── results/    │    │                  │    │ ├── Metrics     │
-│ └── models/     │    │ ├── GitHub Repo  │    │ └── Logs        │
-└─────────────────┘    │ ├── Auto-Shutdown│    └─────────────────┘
-                       │ └── fMRI Analysis│
-                       └──────────────────┘
+│ │ └── Parkinson │    │                  │    │ ├── Metrics     │
+│ │   sdisease58/ │    │ ├── GitHub Repo  │    │ └── Logs        │
+│ ├── results/    │    │ ├── Auto-Shutdown│    └─────────────────┘
+│ └── models/     │    │ └── fMRI Analysis│
+└─────────────────┘    └──────────────────┘
 ```
 
 ## 📁 Project Structure
@@ -94,17 +94,38 @@ For private repositories, you'll need a GitHub Personal Access Token:
 
 ### 2. Upload Your Data
 
-Organize your fMRI data in S3 following this structure:
+Organize your fMRI data in S3 following this structure for the Parkinson's disease dataset:
 
 ```
-s3://your-bucket/datasets/
-├── controls/
-│   ├── sub-001_task-rest_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz
-│   └── sub-002_task-rest_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz
-└── patients/
-    ├── sub-101_task-rest_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz
-    └── sub-102_task-rest_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz
+s3://your-bucket/datasets/Parkinsonsdisease58/ds004392-download/
+├── sub-0203/
+│   └── ses-01/
+│       ├── func/
+│       │   └── sub-0203_ses-01_task-rest_bold.nii.gz
+│       └── anat/
+│           └── sub-0203_ses-01_T1w.nii.gz
+├── sub-1001/
+│   └── ses-01/
+│       ├── func/
+│       │   └── sub-1001_ses-01_task-rest_bold.nii.gz
+│       └── anat/
+│           └── sub-1001_ses-01_T1w.nii.gz
+└── sub-XXXX/
+    └── ses-XX/
+        ├── func/
+        │   └── sub-XXXX_ses-XX_task-rest_bold.nii.gz
+        └── anat/
+            └── sub-XXXX_ses-XX_T1w.nii.gz
 ```
+
+**File Naming Convention:**
+- Functional data: `sub-XXXX_ses-XX_task-rest_bold.nii.gz`
+- Anatomical data: `sub-XXXX_ses-XX_T1w.nii.gz`
+
+**Subject ID Classification:**
+- Subject IDs < 1000: Assumed to be healthy controls
+- Subject IDs ≥ 1000: Assumed to be Parkinson's disease patients
+- You can modify this logic in the notebook based on your dataset
 
 ### 3. Run Analysis
 
@@ -121,6 +142,7 @@ s3://your-bucket/datasets/
 - **GitHub Integration**: Automatic repository cloning with support for private repositories
 - **Secure Credentials**: GitHub tokens stored in AWS Secrets Manager
 - **Automated S3 Integration**: Seamless data loading from S3
+- **fMRI Visualization**: Comprehensive visualization of the first control subject's data
 - **ROI Extraction**: Harvard-Oxford atlas-based region extraction
 - **Feature Engineering**: 1000+ features per subject including:
   - Regional time series statistics
@@ -136,6 +158,15 @@ s3://your-bucket/datasets/
 - **Hyperparameter Tuning**: Automated optimization
 
 ### Visualization & Reporting
+- **fMRI Data Visualization**: Comprehensive multi-panel visualization including:
+  - Mean fMRI images in sagittal, coronal, and axial views
+  - Time series plots from central voxels
+  - Signal intensity distribution histograms
+  - Temporal signal-to-noise ratio (tSNR) maps
+  - Motion estimation plots
+  - Power spectrum analysis
+  - Brain mask visualization
+  - Data quality assessment metrics
 - **ROC Curves**: Model performance comparison
 - **Confusion Matrices**: Classification accuracy visualization
 - **Feature Importance**: Top discriminative features
