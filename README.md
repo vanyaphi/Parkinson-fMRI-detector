@@ -334,23 +334,35 @@ fMRIPrep is a preprocessing pipeline that performs:
 
 #### 1. Preprocessing Your Data
 
+**Pip Installation (Recommended for SageMaker)**
 ```bash
-# Example fMRIPrep command (requires Docker/Singularity)
-docker run -ti --rm \\
-    -v /path/to/bids/dataset:/data:ro \\
-    -v /path/to/output:/out \\
-    -v /tmp/fmriprep_work:/work \\
-    -v /path/to/freesurfer/license.txt:/opt/freesurfer/license.txt \\
-    nipreps/fmriprep:latest \\
-    /data /out participant \\
-    --participant-label 01 \\
-    --output-spaces MNI152NLin2009cAsym:res-2 \\
-    --use-aroma \\
-    --fd-spike-threshold 0.5 \\
-    --dvars-spike-threshold 1.5 \\
-    --skull-strip-template OASIS30ANTs \\
-    --nthreads 4 \\
-    --mem-mb 8000
+# Install fMRIPrep and dependencies
+pip install fmriprep templateflow niworkflows smriprep
+
+# Set up TemplateFlow cache
+export TEMPLATEFLOW_HOME=$HOME/.cache/templateflow
+
+# Download required templates
+python -c "import templateflow.api as tf_api; tf_api.get('MNI152NLin2009cAsym')"
+
+# Run preprocessing using Python API
+python -c "
+from fmriprep.cli.run import main as fmriprep_main
+import sys
+sys.argv = [
+    'fmriprep',
+    '/path/to/bids/dataset',
+    '/path/to/output',
+    'participant',
+    '--participant-label', '01',
+    '--output-spaces', 'MNI152NLin2009cAsym:res-2',
+    '--use-aroma',
+    '--work-dir', '/tmp/work',
+    '--nthreads', '4',
+    '--mem-mb', '8000'
+]
+fmriprep_main()
+"
 ```
 
 #### 2. fMRIPrep Output Structure
