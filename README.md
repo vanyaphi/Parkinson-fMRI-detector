@@ -143,6 +143,7 @@ s3://your-bucket/datasets/Parkinsonsdisease58/ds004392-download/
 - **Secure Credentials**: GitHub tokens stored in AWS Secrets Manager
 - **Automated S3 Integration**: Seamless data loading from S3
 - **fMRI Visualization**: Comprehensive visualization of the first control subject's data
+- **fMRIPrep Integration**: Support for fMRIPrep preprocessed data and confound regression
 - **ROI Extraction**: Harvard-Oxford atlas-based region extraction
 - **Feature Engineering**: 1000+ features per subject including:
   - Regional time series statistics
@@ -284,6 +285,12 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Check file naming conventions
 - Ensure data is in correct format
 
+**fMRIPrep preprocessing errors**
+- Verify BIDS format compliance
+- Check FreeSurfer license availability
+- Ensure sufficient memory and disk space
+- Review fMRIPrep logs for specific errors
+
 **Out of memory errors**
 - Reduce batch size in notebook
 - Use larger instance type (ml.m5.large or higher)
@@ -307,6 +314,121 @@ For issues and questions:
 - [Nilearn Documentation](https://nilearn.github.io/)
 - [AWS SageMaker Documentation](https://docs.aws.amazon.com/sagemaker/)
 - [Parkinson's Disease Neuroimaging Research](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6294134/)
+
+## 🧠 fMRIPrep Integration
+
+This project includes comprehensive support for fMRIPrep preprocessed data, which provides robust and standardized preprocessing of fMRI data.
+
+### What is fMRIPrep?
+
+fMRIPrep is a preprocessing pipeline that performs:
+- **Motion correction**: Realignment to reference volume
+- **Slice timing correction**: Temporal alignment of slices
+- **Spatial normalization**: Registration to standard brain templates
+- **Brain extraction**: Skull stripping using ANTs
+- **ICA-AROMA**: Automatic removal of motion artifacts
+- **Confound estimation**: Motion and physiological noise parameters
+- **Quality control**: Comprehensive visual reports
+
+### Using fMRIPrep with This Pipeline
+
+#### 1. Preprocessing Your Data
+
+**Pip Installation (Recommended for SageMaker)**
+```bash
+# Install fMRIPrep and dependencies
+pip install fmriprep templateflow niworkflows smriprep
+
+# Set up TemplateFlow cache
+export TEMPLATEFLOW_HOME=$HOME/.cache/templateflow
+
+# Download required templates
+python -c "import templateflow.api as tf_api; tf_api.get('MNI152NLin2009cAsym')"
+
+# Run preprocessing using Python API
+python -c "
+from fmriprep.cli.run import main as fmriprep_main
+import sys
+sys.argv = [
+    'fmriprep',
+    '/path/to/bids/dataset',
+    '/path/to/output',
+    'participant',
+    '--participant-label', '01',
+    '--output-spaces', 'MNI152NLin2009cAsym:res-2',
+    '--use-aroma',
+    '--work-dir', '/tmp/work',
+    '--nthreads', '4',
+    '--mem-mb', '8000'
+]
+fmriprep_main()
+"
+```
+
+#### 2. fMRIPrep Output Structure
+
+fMRIPrep generates several important files:
+
+```
+derivatives/fmriprep/
+├── sub-XXXX/
+│   ├── ses-XX/
+│   │   ├── func/
+│   │   │   ├── sub-XXXX_ses-XX_task-rest_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz
+│   │   │   ├── sub-XXXX_ses-XX_task-rest_desc-confounds_timeseries.tsv
+│   │   │   └── sub-XXXX_ses-XX_task-rest_space-MNI152NLin2009cAsym_desc-brain_mask.nii.gz
+│   │   └── anat/
+│   │       └── sub-XXXX_ses-XX_space-MNI152NLin2009cAsym_desc-preproc_T1w.nii.gz
+│   └── figures/
+│       └── sub-XXXX_ses-XX_task-rest_desc-summary_bold.html
+```
+
+#### 3. Key fMRIPrep Features Used
+
+- **MNI152NLin2009cAsym space**: Standard brain template for group analysis
+- **ICA-AROMA**: Removes motion-related artifacts automatically
+- **Confound regressors**: Motion parameters, global signals, and noise components
+- **Brain masks**: Precise brain extraction for analysis
+- **Quality reports**: Visual inspection of preprocessing quality
+
+#### 4. Confound Regression
+
+The notebook automatically detects and uses fMRIPrep confound files:
+
+- **Motion parameters**: Translation and rotation in 6 directions
+- **Framewise displacement**: Summary motion metric
+- **Global signals**: Whole-brain, CSF, and white matter signals
+- **DVARS**: Temporal derivative of BOLD signal variance
+- **Physiological noise**: Respiratory and cardiac-related components
+
+#### 5. Quality Assessment
+
+The pipeline provides comprehensive quality metrics:
+
+- **Motion assessment**: Framewise displacement analysis
+- **Signal quality**: Temporal signal-to-noise ratio
+- **Artifact detection**: Identification of problematic volumes
+- **Coverage analysis**: Brain mask quality evaluation
+
+### Benefits of Using fMRIPrep
+
+1. **Standardization**: Consistent preprocessing across studies
+2. **Robustness**: Handles various acquisition parameters automatically
+3. **Quality control**: Comprehensive visual reports for each subject
+4. **Reproducibility**: Same results across different computing environments
+5. **Best practices**: Implements state-of-the-art preprocessing methods
+6. **BIDS compatibility**: Works seamlessly with BIDS-formatted datasets
+
+### Integration with Analysis Pipeline
+
+The notebook automatically:
+- Detects fMRIPrep preprocessed files
+- Loads confound regressors
+- Visualizes motion and physiological parameters
+- Applies confound regression to clean the data
+- Uses preprocessed data for feature extraction and classification
+
+This ensures optimal data quality for machine learning analysis while maintaining full transparency about preprocessing steps.
 
 ---
 
