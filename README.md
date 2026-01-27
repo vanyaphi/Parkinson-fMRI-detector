@@ -1,15 +1,15 @@
 # Parkinson's Disease fMRI Detection on AWS SageMaker
 
-This project implements a comprehensive machine learning pipeline for detecting Parkinson's disease from functional MRI (fMRI) data using AWS SageMaker Notebook Instances. The solution includes automated infrastructure deployment, GitHub integration, data processing, feature extraction, and multiple classification algorithms.
+This project implements a comprehensive machine learning pipeline for detecting Parkinson's disease from functional MRI (fMRI) data using AWS SageMaker Notebook Instances. The solution includes automated infrastructure deployment, GitHub integration, data processing, feature extraction, and multiple classification algorithms. Most of the code is generated using Claude Code, is currently under development.
 
 ## 🧠 Overview
 
 The pipeline analyzes resting-state fMRI data to distinguish between Parkinson's disease patients and healthy controls using:
 
-- **Functional Connectivity Analysis**: Brain region correlation patterns
-- **Regional Activity Measures**: Statistical properties of brain regions
-- **Frequency Domain Features**: Power spectral analysis
-- **Multiple ML Algorithms**: SVM, Random Forest, Logistic Regression, and Deep Neural Networks
+- **Functional Connectivity Analysis**: Brain region correlation patterns  (under development)
+- **Regional Activity Measures**: Statistical properties of brain regions  (under development)
+- **Frequency Domain Features**: Power spectral analysis  (under development)
+- **Multiple ML Algorithms**: SVM, Random Forest, Logistic Regression, and Deep Neural Networks  (under development)
 
 ## 🏗️ Architecture
 
@@ -143,20 +143,20 @@ s3://your-bucket/datasets/Parkinsonsdisease58/ds004392-download/
 - **Secure Credentials**: GitHub tokens stored in AWS Secrets Manager
 - **Automated S3 Integration**: Seamless data loading from S3
 - **fMRI Visualization**: Comprehensive visualization of the first control subject's data
-- **fMRIPrep Integration**: Support for fMRIPrep preprocessed data and confound regression
-- **ROI Extraction**: Harvard-Oxford atlas-based region extraction
-- **Feature Engineering**: 1000+ features per subject including:
+- **fMRIPrep Integration**: Support for fMRIPrep preprocessed data and confound regression  (under development)
+- **ROI Extraction**: Harvard-Oxford atlas-based region extraction  (under development)
+- **Feature Engineering**: 1000+ features per subject (under development) including: 
   - Regional time series statistics
   - Functional connectivity matrices
   - Network topology measures
   - Frequency domain characteristics
 
 ### Machine Learning
-- **Multiple Algorithms**: SVM, Random Forest, Logistic Regression, Deep Neural Networks
-- **Feature Selection**: Statistical significance testing and effect size analysis
-- **Class Balancing**: SMOTE for handling imbalanced datasets
-- **Cross-Validation**: Robust performance estimation
-- **Hyperparameter Tuning**: Automated optimization
+- **Multiple Algorithms**: SVM, Random Forest, Logistic Regression, Deep Neural Networks  (under development)
+- **Feature Selection**: Statistical significance testing and effect size analysis  (under development)
+- **Class Balancing**: SMOTE for handling imbalanced datasets  (under development)
+- **Cross-Validation**: Robust performance estimation  (under development)
+- **Hyperparameter Tuning**: Automated optimization  (under development)
 
 ### Visualization & Reporting
 - **fMRI Data Visualization**: Comprehensive multi-panel visualization including:
@@ -168,11 +168,11 @@ s3://your-bucket/datasets/Parkinsonsdisease58/ds004392-download/
   - Power spectrum analysis
   - Brain mask visualization
   - Data quality assessment metrics
-- **ROC Curves**: Model performance comparison
-- **Confusion Matrices**: Classification accuracy visualization
-- **Feature Importance**: Top discriminative features
-- **Statistical Analysis**: Group differences and effect sizes
-- **Comprehensive Reports**: Automated summary generation
+- **ROC Curves**: Model performance comparison  (under development)
+- **Confusion Matrices**: Classification accuracy visualization  (under development)
+- **Feature Importance**: Top discriminative features  (under development)
+- **Statistical Analysis**: Group differences and effect sizes  (under development)
+- **Comprehensive Reports**: Automated summary generation  (under development)
 
 ### Cost Optimization
 - **Auto-Shutdown**: 30-minute idle timeout for notebook instances
@@ -183,8 +183,8 @@ s3://your-bucket/datasets/Parkinsonsdisease58/ds004392-download/
 ## 📊 Expected Results
 
 The pipeline typically achieves:
-- **Accuracy**: 75-90% depending on dataset quality
-- **AUC Score**: 0.80-0.95 for well-preprocessed data
+- **Accuracy**: ?? depending on dataset quality
+- **AUC Score**: ??for well-preprocessed data
 - **Processing Time**: 10-30 minutes for 50 subjects
 - **Feature Count**: 500-2000 features per subject
 
@@ -217,21 +217,12 @@ aws cloudformation delete-stack \
     --stack-name parkinson-fmri-notebook-stack
 ```
 
-## 🔒 Security Features
-
-- **IAM Roles**: Principle of least privilege
-- **S3 Encryption**: Server-side encryption enabled
-- **HTTPS Only**: Enforced secure transport
-- **GitHub Credentials**: Secure token storage in AWS Secrets Manager
-- **Access Logging**: CloudWatch integration
-- **GitHub Integration**: Secure repository access
 
 ## 💰 Cost Optimization
 
 ### Automatic Features
 - **Idle Shutdown**: Notebooks stop after 30 minutes of inactivity
 - **S3 Lifecycle**: Data transitions to cheaper storage classes
-- **Resource Monitoring**: CloudWatch cost tracking
 
 ### Manual Optimization
 - Use `ml.t3.medium` instances for development
@@ -247,10 +238,10 @@ If you don't have your own fMRI data, the notebook will automatically download s
 
 This implementation is based on established neuroimaging research methodologies:
 
-1. **Functional Connectivity**: Altered connectivity patterns in Parkinson's disease
-2. **Basal Ganglia Networks**: Motor circuit dysfunction analysis
-3. **Default Mode Network**: Resting-state network alterations
-4. **Machine Learning**: Pattern recognition in neuroimaging data
+1. **Functional Connectivity**: Altered connectivity patterns in Parkinson's disease  (under development)
+2. **Basal Ganglia Networks**: Motor circuit dysfunction analysis  (under development)
+3. **Default Mode Network**: Resting-state network alterations  (under development)
+4. **Machine Learning**: Pattern recognition in neuroimaging data  (under development)
 
 ## 🤝 Contributing
 
@@ -306,7 +297,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 For issues and questions:
 1. Check CloudWatch logs
 2. Review AWS documentation
-3. Open an issue in the repository
 
 ## 🔗 References
 
@@ -317,7 +307,7 @@ For issues and questions:
 
 ## 🧠 fMRIPrep Integration
 
-This project includes comprehensive support for fMRIPrep preprocessed data, which provides robust and standardized preprocessing of fMRI data.
+This project includes comprehensive support for fMRIPrep preprocessed data, which provides robust and standardized preprocessing of fMRI data. The code is currently under development and has not been tested yet.
 
 ### What is fMRIPrep?
 
@@ -332,40 +322,8 @@ fMRIPrep is a preprocessing pipeline that performs:
 
 ### Using fMRIPrep with This Pipeline
 
-#### 1. Preprocessing Your Data
 
-**Pip Installation (Recommended for SageMaker)**
-```bash
-# Install fMRIPrep and dependencies
-pip install fmriprep templateflow niworkflows smriprep
-
-# Set up TemplateFlow cache
-export TEMPLATEFLOW_HOME=$HOME/.cache/templateflow
-
-# Download required templates
-python -c "import templateflow.api as tf_api; tf_api.get('MNI152NLin2009cAsym')"
-
-# Run preprocessing using Python API
-python -c "
-from fmriprep.cli.run import main as fmriprep_main
-import sys
-sys.argv = [
-    'fmriprep',
-    '/path/to/bids/dataset',
-    '/path/to/output',
-    'participant',
-    '--participant-label', '01',
-    '--output-spaces', 'MNI152NLin2009cAsym:res-2',
-    '--use-aroma',
-    '--work-dir', '/tmp/work',
-    '--nthreads', '4',
-    '--mem-mb', '8000'
-]
-fmriprep_main()
-"
-```
-
-#### 2. fMRIPrep Output Structure
+#### 1. fMRIPrep Output Structure
 
 fMRIPrep generates several important files:
 
@@ -383,52 +341,34 @@ derivatives/fmriprep/
 │       └── sub-XXXX_ses-XX_task-rest_desc-summary_bold.html
 ```
 
-#### 3. Key fMRIPrep Features Used
+#### 2. Key fMRIPrep Features Used
 
-- **MNI152NLin2009cAsym space**: Standard brain template for group analysis
-- **ICA-AROMA**: Removes motion-related artifacts automatically
-- **Confound regressors**: Motion parameters, global signals, and noise components
-- **Brain masks**: Precise brain extraction for analysis
-- **Quality reports**: Visual inspection of preprocessing quality
+- **MNI152NLin2009cAsym space**: Standard brain template for group analysis (under development)
+- **ICA-AROMA**: Removes motion-related artifacts automatically  (under development)
+- **Confound regressors**: Motion parameters, global signals, and noise components  (under development)
+- **Brain masks**: Precise brain extraction for analysis  (under development)
+- **Quality reports**: Visual inspection of preprocessing quality  (under development)
 
 #### 4. Confound Regression
 
 The notebook automatically detects and uses fMRIPrep confound files:
 
-- **Motion parameters**: Translation and rotation in 6 directions
-- **Framewise displacement**: Summary motion metric
-- **Global signals**: Whole-brain, CSF, and white matter signals
-- **DVARS**: Temporal derivative of BOLD signal variance
-- **Physiological noise**: Respiratory and cardiac-related components
+- **Motion parameters**: Translation and rotation in 6 directions  (under development)
+- **Framewise displacement**: Summary motion metric  (under development)
+- **Global signals**: Whole-brain, CSF, and white matter signals  (under development)
+- **DVARS**: Temporal derivative of BOLD signal variance  (under development)
+- **Physiological noise**: Respiratory and cardiac-related components  (under development)
 
 #### 5. Quality Assessment
 
 The pipeline provides comprehensive quality metrics:
 
-- **Motion assessment**: Framewise displacement analysis
-- **Signal quality**: Temporal signal-to-noise ratio
-- **Artifact detection**: Identification of problematic volumes
-- **Coverage analysis**: Brain mask quality evaluation
+- **Motion assessment**: Framewise displacement analysis  (under development)
+- **Signal quality**: Temporal signal-to-noise ratio  (under development)
+- **Artifact detection**: Identification of problematic volumes  (under development)
+- **Coverage analysis**: Brain mask quality evaluation  (under development)
 
-### Benefits of Using fMRIPrep
 
-1. **Standardization**: Consistent preprocessing across studies
-2. **Robustness**: Handles various acquisition parameters automatically
-3. **Quality control**: Comprehensive visual reports for each subject
-4. **Reproducibility**: Same results across different computing environments
-5. **Best practices**: Implements state-of-the-art preprocessing methods
-6. **BIDS compatibility**: Works seamlessly with BIDS-formatted datasets
-
-### Integration with Analysis Pipeline
-
-The notebook automatically:
-- Detects fMRIPrep preprocessed files
-- Loads confound regressors
-- Visualizes motion and physiological parameters
-- Applies confound regression to clean the data
-- Uses preprocessed data for feature extraction and classification
-
-This ensures optimal data quality for machine learning analysis while maintaining full transparency about preprocessing steps.
 
 ---
 
