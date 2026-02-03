@@ -144,17 +144,19 @@ s3://your-bucket/datasets/Parkinsonsdisease58/ds004392-download/
 - **Automated S3 Integration**: Seamless data loading from S3
 - **fMRI Visualization**: Comprehensive visualization of the first control subject's data
 - **fMRIPrep Integration**: Support for fMRIPrep preprocessed data and confound regression  (under development)
-- **ROI Extraction**: Harvard-Oxford atlas-based region extraction 
-- **Feature Engineering**: 1000+ features per subject  including: 
+- **ROI Extraction**: Harvard-Oxford atlas-based region extraction  (under development)
+- **Feature Engineering**: 1000+ features per subject (under development) including: 
   - Regional time series statistics
   - Functional connectivity matrices
+  - Network topology measures
   - Frequency domain characteristics
 
 ### Machine Learning
-- **Multiple Algorithms**: SVM, Random Forest, Logistic Regression  
-- **Feature Selection**: Statistical significance testing and effect size analysis 
-- **Class Balancing**: SMOTE for handling imbalanced datasets  
-- **Cross-Validation**: Robust performance estimation 
+- **Multiple Algorithms**: SVM, Random Forest, Logistic Regression, Deep Neural Networks  (under development)
+- **Feature Selection**: Statistical significance testing and effect size analysis  (under development)
+- **Class Balancing**: SMOTE for handling imbalanced datasets  (under development)
+- **Cross-Validation**: Robust performance estimation  (under development)
+- **Hyperparameter Tuning**: Automated optimization  (under development)
 
 ### Visualization & Reporting
 - **fMRI Data Visualization**: Comprehensive multi-panel visualization including:
@@ -174,6 +176,9 @@ s3://your-bucket/datasets/Parkinsonsdisease58/ds004392-download/
 
 ### Cost Optimization
 - **Auto-Shutdown**: 30-minute idle timeout for notebook instances
+- **S3 Lifecycle**: Automatic data archiving
+- **Resource Monitoring**: CloudWatch integration
+- **EBS Optimization**: Right-sized storage volumes
 
 ## 📊 Expected Results
 
@@ -295,9 +300,73 @@ For issues and questions:
 
 ## 🔗 References
 
+- [fMRIPrep Documentation](https://fmriprep.org/)
 - [Nilearn Documentation](https://nilearn.github.io/)
 - [AWS SageMaker Documentation](https://docs.aws.amazon.com/sagemaker/)
 - [Parkinson's Disease Neuroimaging Research](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6294134/)
+
+## 🧠 fMRIPrep Integration
+
+This project includes comprehensive support for fMRIPrep preprocessed data, which provides robust and standardized preprocessing of fMRI data. The code is currently under development and has not been tested yet.
+
+### What is fMRIPrep?
+
+fMRIPrep is a preprocessing pipeline that performs:
+- **Motion correction**: Realignment to reference volume
+- **Slice timing correction**: Temporal alignment of slices
+- **Spatial normalization**: Registration to standard brain templates
+- **Brain extraction**: Skull stripping using ANTs
+- **ICA-AROMA**: Automatic removal of motion artifacts
+- **Confound estimation**: Motion and physiological noise parameters
+- **Quality control**: Comprehensive visual reports
+
+### Using fMRIPrep with This Pipeline
+
+
+#### 1. fMRIPrep Output Structure
+
+fMRIPrep generates several important files:
+
+```
+derivatives/fmriprep/
+├── sub-XXXX/
+│   ├── ses-XX/
+│   │   ├── func/
+│   │   │   ├── sub-XXXX_ses-XX_task-rest_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz
+│   │   │   ├── sub-XXXX_ses-XX_task-rest_desc-confounds_timeseries.tsv
+│   │   │   └── sub-XXXX_ses-XX_task-rest_space-MNI152NLin2009cAsym_desc-brain_mask.nii.gz
+│   │   └── anat/
+│   │       └── sub-XXXX_ses-XX_space-MNI152NLin2009cAsym_desc-preproc_T1w.nii.gz
+│   └── figures/
+│       └── sub-XXXX_ses-XX_task-rest_desc-summary_bold.html
+```
+
+#### 2. Key fMRIPrep Features Used
+
+- **MNI152NLin2009cAsym space**: Standard brain template for group analysis (under development)
+- **ICA-AROMA**: Removes motion-related artifacts automatically  (under development)
+- **Confound regressors**: Motion parameters, global signals, and noise components  (under development)
+- **Brain masks**: Precise brain extraction for analysis  (under development)
+- **Quality reports**: Visual inspection of preprocessing quality  (under development)
+
+#### 4. Confound Regression
+
+The notebook automatically detects and uses fMRIPrep confound files:
+
+- **Motion parameters**: Translation and rotation in 6 directions  (under development)
+- **Framewise displacement**: Summary motion metric  (under development)
+- **Global signals**: Whole-brain, CSF, and white matter signals  (under development)
+- **DVARS**: Temporal derivative of BOLD signal variance  (under development)
+- **Physiological noise**: Respiratory and cardiac-related components  (under development)
+
+#### 5. Quality Assessment
+
+The pipeline provides comprehensive quality metrics:
+
+- **Motion assessment**: Framewise displacement analysis  (under development)
+- **Signal quality**: Temporal signal-to-noise ratio  (under development)
+- **Artifact detection**: Identification of problematic volumes  (under development)
+- **Coverage analysis**: Brain mask quality evaluation  (under development)
 
 
 
