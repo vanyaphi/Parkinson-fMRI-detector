@@ -1,6 +1,6 @@
 # Parkinson's Disease fMRI Detection on AWS SageMaker
 
-This project implements a comprehensive machine learning pipeline for detecting Parkinson's disease from functional MRI (fMRI) data using AWS SageMaker Notebook Instances. The solution includes automated infrastructure deployment, GitHub integration, data processing, feature extraction, and multiple classification algorithms. Most of the code is generated using Amazon Kiro.
+This project implements a comprehensive machine learning pipeline for detecting Parkinson's disease from functional MRI (fMRI) data using AWS SageMaker Notebook Instances. The solution includes automated infrastructure deployment, GitHub integration, data processing, feature extraction, and multiple classification algorithms. Initial code was generated using Amazon Kiro.
 
 ## 🧠 Overview
 
