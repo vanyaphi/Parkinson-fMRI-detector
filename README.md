@@ -1,15 +1,15 @@
 # Parkinson's Disease fMRI Detection on AWS SageMaker
 
-This project implements a comprehensive machine learning pipeline for detecting Parkinson's disease from functional MRI (fMRI) data using AWS SageMaker Notebook Instances. The solution includes automated infrastructure deployment, GitHub integration, data processing, feature extraction, and multiple classification algorithms. Most of the code is generated using Claude Code, is currently under development.
+This project implements a comprehensive machine learning pipeline for detecting Parkinson's disease from functional MRI (fMRI) data using AWS SageMaker Notebook Instances. The solution includes automated infrastructure deployment, GitHub integration, data processing, feature extraction, and multiple classification algorithms. Initial code was generated using Amazon Kiro.
 
 ## 🧠 Overview
 
 The pipeline analyzes resting-state fMRI data to distinguish between Parkinson's disease patients and healthy controls using:
 
-- **Functional Connectivity Analysis**: Brain region correlation patterns  (under development)
-- **Regional Activity Measures**: Statistical properties of brain regions  (under development)
-- **Frequency Domain Features**: Power spectral analysis  (under development)
-- **Multiple ML Algorithms**: SVM, Random Forest, Logistic Regression, and Deep Neural Networks  (under development)
+- **Functional Connectivity Analysis**: Brain region correlation patterns 
+- **Regional Activity Measures**: Statistical properties of brain regions 
+- **Frequency Domain Features**: Power spectral analysis  
+- **Multiple ML Algorithms**: SVM, Random Forest, Logistic Regression
 
 ## 🏗️ Architecture
 
@@ -28,7 +28,7 @@ The pipeline analyzes resting-state fMRI data to distinguish between Parkinson's
 ## 📁 Project Structure
 
 ```
-├── parkinson_fmri_detector_sagemaker.ipynb  # Main analysis notebook
+├── fmri_analysis_sagemaker.ipynb            # Main analysis notebook
 ├── fmri-notebook-infrastructure.yaml        # CloudFormation template
 ├── deploy-fmri-infrastructure.sh            # Deployment script
 ├── manage-notebook.sh                       # Notebook management script
@@ -99,33 +99,29 @@ Organize your fMRI data in S3 following this structure for the Parkinson's disea
 ```
 s3://your-bucket/datasets/Parkinsonsdisease58/ds004392-download/
 ├── sub-0203/
-│   └── ses-01/
-│       ├── func/
-│       │   └── sub-0203_ses-01_task-rest_bold.nii.gz
-│       └── anat/
-│           └── sub-0203_ses-01_T1w.nii.gz
+│   ├── func/
+│   │   └── sub-0203_task-rest_bold.nii.gz
+│   └── anat/
+│       └── sub-0203_T1w.nii.gz
 ├── sub-1001/
-│   └── ses-01/
-│       ├── func/
-│       │   └── sub-1001_ses-01_task-rest_bold.nii.gz
-│       └── anat/
-│           └── sub-1001_ses-01_T1w.nii.gz
+│   ├── func/
+│   │   └── sub-1001_task-rest_bold.nii.gz
+│   └── anat/
+│       └── sub-1001_T1w.nii.gz
 └── sub-XXXX/
     └── ses-XX/
         ├── func/
-        │   └── sub-XXXX_ses-XX_task-rest_bold.nii.gz
+        │   └── sub-XXXX_task-rest_bold.nii.gz
         └── anat/
-            └── sub-XXXX_ses-XX_T1w.nii.gz
+            └── sub-XXXX_T1w.nii.gz
 ```
 
 **File Naming Convention:**
-- Functional data: `sub-XXXX_ses-XX_task-rest_bold.nii.gz`
-- Anatomical data: `sub-XXXX_ses-XX_T1w.nii.gz`
+- Functional data: `sub-XXXX_task-rest_bold.nii.gz`
+- Anatomical data: `sub-XXXX_T1w.nii.gz`
 
 **Subject ID Classification:**
-- Subject IDs < 1000: Assumed to be healthy controls
-- Subject IDs ≥ 1000: Assumed to be Parkinson's disease patients
-- You can modify this logic in the notebook based on your dataset
+- A separate TSV file includes classification of data into Control and Patient.
 
 ### 3. Run Analysis
 
@@ -143,7 +139,6 @@ s3://your-bucket/datasets/Parkinsonsdisease58/ds004392-download/
 - **Secure Credentials**: GitHub tokens stored in AWS Secrets Manager
 - **Automated S3 Integration**: Seamless data loading from S3
 - **fMRI Visualization**: Comprehensive visualization of the first control subject's data
-- **fMRIPrep Integration**: Support for fMRIPrep preprocessed data and confound regression  (under development)
 - **ROI Extraction**: Harvard-Oxford atlas-based region extraction 
 - **Feature Engineering**: 1000+ features per subject  including: 
   - Regional time series statistics
@@ -166,11 +161,11 @@ s3://your-bucket/datasets/Parkinsonsdisease58/ds004392-download/
   - Power spectrum analysis
   - Brain mask visualization
   - Data quality assessment metrics
-- **ROC Curves**: Model performance comparison  (under development)
-- **Confusion Matrices**: Classification accuracy visualization  (under development)
-- **Feature Importance**: Top discriminative features  (under development)
-- **Statistical Analysis**: Group differences and effect sizes  (under development)
-- **Comprehensive Reports**: Automated summary generation  (under development)
+- **ROC Curves**: Model performance comparison
+- **Confusion Matrices**: Classification accuracy visualization
+- **Feature Importance**: Top discriminative features
+- **Statistical Analysis**: Group differences and effect sizes
+- **Comprehensive Reports**: Automated summary generation
 
 ### Cost Optimization
 - **Auto-Shutdown**: 30-minute idle timeout for notebook instances
@@ -178,10 +173,9 @@ s3://your-bucket/datasets/Parkinsonsdisease58/ds004392-download/
 ## 📊 Expected Results
 
 The pipeline typically achieves:
-- **Accuracy**: ?? depending on dataset quality
-- **AUC Score**: ??for well-preprocessed data
-- **Processing Time**: 10-30 minutes for 50 subjects
-- **Feature Count**: 500-2000 features per subject
+- **Accuracy**: 60% depending on dataset quality
+- **Processing Time**: 1-2 hours for 58 subjects
+- **Feature Count**: 1400 features per subject
 
 ## 🛠️ Management Commands
 
@@ -233,10 +227,10 @@ If you don't have your own fMRI data, the notebook will automatically download s
 
 This implementation is based on established neuroimaging research methodologies:
 
-1. **Functional Connectivity**: Altered connectivity patterns in Parkinson's disease  (under development)
-2. **Basal Ganglia Networks**: Motor circuit dysfunction analysis  (under development)
-3. **Default Mode Network**: Resting-state network alterations  (under development)
-4. **Machine Learning**: Pattern recognition in neuroimaging data  (under development)
+1. **Functional Connectivity**: Altered connectivity patterns in Parkinson's disease 
+2. **Basal Ganglia Networks**: Motor circuit dysfunction analysis 
+3. **Default Mode Network**: Resting-state network alterations  
+4. **Machine Learning**: Pattern recognition in neuroimaging data  
 
 ## 🤝 Contributing
 
